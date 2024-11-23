@@ -1,2 +1,10 @@
-# enhanced-radio-comm
-UIowa Spring 2024 | ECE Senior Design Project | Optimizing digital radio communications for enhanced range, reliability, and throughput with deep learning.
+**UIowa Spring 2024 | ECE Senior Design Project**
+
+---
+
+# Enhanced Radio Communication
+### *Enhancing range, reliability, and throughput of digital radio communications on edge devices with deep learning.*
+
+---
+
+~
