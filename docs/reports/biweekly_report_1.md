@@ -14,17 +14,24 @@
 ### Task 1:
 
 
-Team<br>Member | Task | Status
----------------|------|-------
-  |  |  
+Team<br>Member | Task      | Status
+---------------|-----------|-------
+  Trey         | Order uCs |  IP
 
 ### Task 2:
 
 
+Team<br>Member | Task                                      | Status
+---------------|-------------------------------------------|-------
+  Trey         | Research compatible uCs for embedded demo |  DN
+
+### Task 3:
+
+
 Team<br>Member | Task | Status
 ---------------|------|-------
-  |  |  
-
+  |  | 
+  
 ![Image 1](link)
 ![Image 2](link)
 
