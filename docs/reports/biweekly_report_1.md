@@ -38,7 +38,8 @@ We are also limited by available hardware to begin prototyping. The esp32 we hav
 
 ## 5. Describe the steps for the next two weeks (what each person will be working on each week)
 ### Week of 2/11/25:
-
+Over the next two weeks, we plan to purchase components for the embedded deliverable and start prototyping code for the embedded control group. This code will be just a simple WIFI protocol implementation so we can compare the bandwidth requirements to our compression network. 
+Additionally, we plan to continue research and development on the AutoEncoder and core framework of our program to make steady progress toward completion.
 
 ### Week of 2/18/25:
-
+Trey will be in charge of placing an order for embedded controllers, and start planning and researching potential roadblocks for the control group code.
