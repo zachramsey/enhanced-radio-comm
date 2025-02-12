@@ -28,9 +28,24 @@ Team<br>Member | Task                                      | Status
 ### Task 3:
 
 
+Team<br>Member | Task                                             | Status
+---------------|--------------------------------------------------|-------
+  All          | Finish proposal and settle on final deliverables | DN
+
+### Task 4:
+
+
 Team<br>Member | Task | Status
 ---------------|------|-------
   |  | 
+
+### Task 5:
+
+
+Team<br>Member | Task | Status
+---------------|------|-------
+  |  | 
+
   
 ![Image 1](link)
 ![Image 2](link)
@@ -41,6 +56,7 @@ The team is struggling as a whole to make substantive progress on the project. A
 We are also limited by available hardware to begin prototyping. The esp32 we have does not support ethernet without an external controller, and we do not have an alternative yet.
 
 ## 4. If behind schedule, provide a plan to address it
+We plan to carve out additional meeting times for the team, and to make plans going in to the meeting what we plan to work on. Additionally, we plan to discuss next steps at the end of each meeting so everyone is aware what the others in the team are working on. 
 
 
 ## 5. Describe the steps for the next two weeks (what each person will be working on each week)
