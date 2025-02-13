@@ -3,8 +3,7 @@
 *2/11/25*
 
 ## 1. Progress update according to Gantt chart with over/under of progress vs. plan
-The team is currently in the brainstorming, research, and design phase of the project.  
-There have been roadblocks with researching the embedded controllers to use, and designing the antenna.
+The team is currently in the brainstorming, research, and design phase of the project. There have been roadblocks with researching the embedded controllers to use, and designing the antenna. We are making progress, however, it seems to be going slower than intended.
 
 ![Gantt Chart](./res/wk1_gantt.png)
 <!--![Git Stats](link) if there is a software component-->
