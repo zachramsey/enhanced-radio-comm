@@ -8,7 +8,8 @@
 ![Git Stats](link) <!--if there is a software component-->
 
 ## 1. Progress update according to Gantt chart with over/under of progress vs. plan
-
+We are still in the initial research phase. There have been roadblocks with researching the embedded controllers to use, and designing the antenna. 
+We are making progress, however, it seems to be going slower than intended. 
 
 ## 2. Update of teamwork: who is doing which tasks
 ### Task 1:
