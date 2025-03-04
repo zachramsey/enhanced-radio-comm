@@ -38,7 +38,7 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from compressai._CXX import pmf_to_quantized_cdf
-from compressai.ops import LowerBound
+from compressai.ops.bound_ops import LowerBound
 from compressai import ans
 
 class EntropyBottleneck(nn.Module):
@@ -53,6 +53,8 @@ class EntropyBottleneck(nn.Module):
         likelihood_bound: float = 1e-9, 
         entropy_coder_precision: int = 16
     ):
+        super().__init__()
+
         self.channels = int(channels)
         self.filters = tuple(int(f) for f in filters)
         self.init_scale = float(init_scale)
@@ -299,6 +301,8 @@ class GaussianConditional(nn.Module):
             likelihood_bound: float = 1e-9,
             entropy_coder_precision: int = 16,
         ):
+        super().__init__()
+        
         self.tail_mass = float(tail_mass)
         if scale_bound is None and scale_table:
             scale_bound = self.scale_table[0]

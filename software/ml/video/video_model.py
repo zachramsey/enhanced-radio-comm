@@ -2,11 +2,13 @@
 import torch
 import torch.nn as nn
 from compressai.layers import GDN
-from .entropy_models import EntropyBottleneck, GaussianConditional
+from compressai.entropy_models import EntropyBottleneck as _
+from compressai.entropy_models import GaussianConditional as _
+from entropy_models import EntropyBottleneck, GaussianConditional
 
-class VideoEncoder(nn.Module):
+class VideoModel(nn.Module):
     def __init__(self, c_network: int, c_compress: int):
-        super(VideoEncoder, self).__init__()
+        super(VideoModel, self).__init__()
 
         # g_a
         # (3, 480, 640) -> (c_network, 240, 320)
@@ -70,14 +72,20 @@ class VideoEncoder(nn.Module):
             nn.Sigmoid()
         )
 
-        self.register_buffer('y', torch.zeros(1))
-        self.register_buffer('z_quantized', torch.zeros(1))
+        self.register_buffer('y_enc', torch.zeros(1))
+        self.register_buffer('z_quantized_enc', torch.zeros(1))
+        self.register_buffer('scales_enc', torch.zeros(1))
 
-        self.register_buffer('scales_infer', torch.zeros(1))
+        self.register_buffer('z_quantized_dec', torch.zeros(1))
+        self.register_buffer('scales_dec', torch.zeros(1))
+        self.register_buffer('y_dec', torch.zeros(1))
 
 
     def forward(self, x):   # x: (batch_size, channels, height, width)
         ''' Forward pass of the model
+
+        This function performs the forward pass of the model, 
+        which is used solely for training and sandbox testing.
 
         Parameters
         ----------
@@ -140,13 +148,30 @@ class VideoEncoder(nn.Module):
         # >>> z <- h_a(y)
         self.z = self.hyper_analysis(self.y)
 
-        # >>> z_strings <- Q(z)
-        z_strings = self.hyper_bottleneck.compress(self.z)
-
         # >>> z_hat, _ <- Q(z)
-        self.z_quantized, self.z_likelihoods = self.hyper_bottleneck(self.z, training=False)
+        self.z_quantized_enc, _ = self.hyper_bottleneck(self.z, training=False)
 
-        return z_strings
+        # >>> z_strings <- Q(z)
+        return self.hyper_bottleneck.compress(self.z)
+    
+
+    def decode_hyper(self, z_strings):
+        ''' Decode the hyper latent
+
+        Upon receiving the compressed hyper latent from the remote device,
+        the control device will call this function to decompress the hyper latent.
+
+        Parameters
+        ----------
+        z_strings : list
+            Compressed hyper latent
+        '''
+
+        # >>> z_hat <- Q(z_strings)
+        self.z_quantized_dec = self.hyper_bottleneck.decompress(z_strings)
+
+        # >>> sigma_hat <- h_s(z_hat)
+        self.scales_dec = self.hyper_synthesis(self.z_quantized_dec)
     
 
     def encode_image(self):
@@ -163,31 +188,10 @@ class VideoEncoder(nn.Module):
         '''
 
         # >>> sigma_hat <- h_s(z_hat)
-        self.scales = self.hyper_synthesis(self.z_quantized)
+        self.scales_enc = self.hyper_synthesis(self.z_quantized_enc)
 
         # >>> y_hat, _ <- Q(y, sigma_hat)
-        y_strings = self.image_bottleneck.compress(self.y, self.scales)
-
-        return y_strings
-    
-
-    def decode_hyper(self, z_strings):
-        ''' Decode the hyper latent
-
-        Upon receiving the compressed hyper latent from the remote device,
-        the control device will call this function to decompress the hyper latent.
-
-        Parameters
-        ----------
-        z_strings : list
-            Compressed hyper latent
-        '''
-
-        # >>> z_hat <- Q(z_strings)
-        self.z_quantized = self.hyper_bottleneck.decompress(z_strings)
-
-        # >>> sigma_hat <- h_s(z_hat)
-        self.scales_infer = self.hyper_synthesis(self.z_quantized)
+        return self.image_bottleneck.compress(self.y, self.scales_enc)
 
 
     def decode_image(self, y_strings):
@@ -208,9 +212,7 @@ class VideoEncoder(nn.Module):
         '''
 
         # >>> y_hat <- Q(y_strings, sigma_hat)
-        self.y_noisy = self.image_bottleneck.decompress(y_strings, self.scales_infer)
+        self.y_hat = self.image_bottleneck.decompress(y_strings, self.scales_dec)
 
         # >>> x_hat <- g_s(y_hat)
-        self.reconstruction = self.image_synthesis(self.y_noisy)
-
-        return self.reconstruction
+        return self.image_synthesis(self.y_hat)
