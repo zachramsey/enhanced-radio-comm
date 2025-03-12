@@ -1,0 +1,35 @@
+# OrangePi2W w/ DietPi Initial setup
+
+- Plug in keyboard, monitor, and power
+- Bootup sequence will display on screen
+- Once bootup completes, log in with default credentials
+  - user: root
+  - pass: dietpi
+- Configuration with blue background will show up
+  - Select 'Network Settings'
+    - *Wifi configuration*:
+      - Select 'WiFi'
+      - Select 'Scan'
+      - Select the correct SSID, then enter password
+      - Note: Eduroam security not supported; on UI campus, must use device net (pass: UI-DeviceNet {I think})
+      - Optionally, select 'Change Mode' to configure static IP
+        - In the new 'Static IP' option, enter the IP shown at the top after 'Address : IP ='
+      - Select 'Country' and change to US
+      - Select 'Apply,' then wait for networking to restart
+      - Select '\<Back>'
+    - *Ethernet configuration*:
+      - TBD
+    - Select 'Test', should complete quickly
+    - Select '\<Exit>'
+  - Select '\<Exit>'
+  - Select '\<OK>,' then wait
+  - Select '0' to opt out of survey, then wait
+  - Select 'Generic 105-key PC'
+  - Select 'English (UK)'
+  - Select 'The default for the keyboard layout'
+  - Select 'No Compose Key'
+  - Select '\<Cancel>'
+  - Select '\<Cancel>'
+  - Select '\<No>'
+  - Note: 'SSH Server' is set to Dropbear by default; it has a smaller footprint than OpenSSH & should work fine
+  - Note: I think that's all, but I fat-thumbed whatever the done button is
