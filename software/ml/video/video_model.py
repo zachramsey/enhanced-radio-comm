@@ -1,14 +1,15 @@
 
-import torch
 import torch.nn as nn
 from compressai.layers import GDN
-from compressai.entropy_models import EntropyBottleneck as _
-from compressai.entropy_models import GaussianConditional as _
+# from compressai.entropy_models import EntropyBottleneck, GaussianConditional
 from entropy_models import EntropyBottleneck, GaussianConditional
 
 class VideoModel(nn.Module):
-    def __init__(self, c_network: int, c_compress: int):
+    def __init__(self, c_network: int, c_compress: int, batch_size: int = 1):
         super(VideoModel, self).__init__()
+        self.c_network = c_network
+        self.c_compress = c_compress
+        self.batch_size = batch_size
 
         # g_a
         # (3, 480, 640) -> (c_network, 240, 320)
@@ -54,7 +55,11 @@ class VideoModel(nn.Module):
         )
 
         # Q, AE, AD
-        self.image_bottleneck = GaussianConditional(scale_table=None)
+        self.image_bottleneck = GaussianConditional(scale_table=[0.11, 0.22, 0.44, 0.88, 1.76, 3.52, 7.04, 14.08])
+        self.entropy_parameters = nn.Sequential(
+            nn.Conv2d(c_compress, 2 * c_compress, 3, padding=1),
+            nn.ReLU(inplace=True),
+        )
 
         # g_s
         # (c_compress, 30, 40) -> (c_network, 60, 80)
@@ -71,14 +76,6 @@ class VideoModel(nn.Module):
             nn.ConvTranspose2d(c_network, 3, 5, stride=2, output_padding=1, padding=2),
             nn.Sigmoid()
         )
-
-        self.register_buffer('y_enc', torch.zeros(1))
-        self.register_buffer('z_quantized_enc', torch.zeros(1))
-        self.register_buffer('scales_enc', torch.zeros(1))
-
-        self.register_buffer('z_quantized_dec', torch.zeros(1))
-        self.register_buffer('scales_dec', torch.zeros(1))
-        self.register_buffer('y_dec', torch.zeros(1))
 
 
     def forward(self, x):   # x: (batch_size, channels, height, width)
@@ -109,18 +106,24 @@ class VideoModel(nn.Module):
         self.z = self.hyper_analysis(self.y)
         
         # >>> z_hat, _ <- Q(z)
-        self.z_noisy, self.z_likelihoods = self.hyper_bottleneck(self.z, training=True)
+        self.z_hat, self.z_likelihoods = self.hyper_bottleneck(self.z, training=True)
 
         # >>> sigma_hat <- h_s(z_hat)
-        self.scales = self.hyper_synthesis(self.z_noisy)
+        self.hyper_params = self.hyper_synthesis(self.z_hat)
+        self.scales_hat, self.means_hat = self.entropy_parameters(self.hyper_params).chunk(2, 1)
 
         # >>> y_hat, _ <- Q(y, sigma_hat)
-        self.y_noisy, self.y_likelihoods = self.image_bottleneck(self.y, self.scales, training=True)
-        
+        self.y_hat, self.y_likelihoods = self.image_bottleneck(self.y, self.scales_hat, means=self.means_hat, training=True)
+
         # >>> x_hat <- g_s(y_hat)
-        self.reconstruction = self.image_synthesis(self.y_noisy)
+        self.reconstruction = self.image_synthesis(self.y_hat)
 
         return self.reconstruction, self.y_likelihoods, self.z_likelihoods
+    
+
+    def bottleneck_update(self):
+        self.hyper_bottleneck.update()
+        self.image_bottleneck.update()
 
 
     def encode_hyper(self, x):
@@ -136,8 +139,6 @@ class VideoModel(nn.Module):
 
         Returns
         -------
-        z_quantized : Tensor
-            Quantized hyper latent
         z_strings : list
             Compressed hyper latent
         '''
@@ -146,13 +147,16 @@ class VideoModel(nn.Module):
         self.y = self.image_analysis(x)
 
         # >>> z <- h_a(y)
-        self.z = self.hyper_analysis(self.y)
+        self.z_hat = self.hyper_analysis(self.y)
+        self.z_shape = self.z_hat.size()[-2:]
 
         # >>> z_hat, _ <- Q(z)
-        self.z_quantized_enc, _ = self.hyper_bottleneck(self.z, training=False)
+        # self.z_enc, _ = self.hyper_bottleneck(self.z_enc, training=False)
 
         # >>> z_strings <- Q(z)
-        return self.hyper_bottleneck.compress(self.z)
+        self.z_strings = self.hyper_bottleneck.compress(self.z_hat)
+
+        return self.z_strings
     
 
     def decode_hyper(self, z_strings):
@@ -165,13 +169,18 @@ class VideoModel(nn.Module):
         ----------
         z_strings : list
             Compressed hyper latent
+
+        Returns
+        -------
+        scales : Tensor
+            Decompressed scales
         '''
 
         # >>> z_hat <- Q(z_strings)
-        self.z_quantized_dec = self.hyper_bottleneck.decompress(z_strings)
+        self.z_hat = self.hyper_bottleneck.decompress(z_strings, (8, 10))
 
         # >>> sigma_hat <- h_s(z_hat)
-        self.scales_dec = self.hyper_synthesis(self.z_quantized_dec)
+        self.hyper_params_dec = self.hyper_synthesis(self.z_hat)
     
 
     def encode_image(self):
@@ -187,11 +196,17 @@ class VideoModel(nn.Module):
             Compressed image latent
         '''
 
-        # >>> sigma_hat <- h_s(z_hat)
-        self.scales_enc = self.hyper_synthesis(self.z_quantized_enc)
+        self.z_hat = self.hyper_bottleneck.decompress(self.z_strings, self.z_shape)
+
+        # >>> params <- h_s(z_hat)
+        self.hyper_params = self.hyper_synthesis(self.z_hat)
+
+        self.scales_hat, self.means_hat = self.entropy_parameters(self.hyper_params).chunk(2, 1)
+        
+        self.indexes = self.image_bottleneck.build_indexes(self.scales_hat)
 
         # >>> y_hat, _ <- Q(y, sigma_hat)
-        return self.image_bottleneck.compress(self.y, self.scales_enc)
+        return self.image_bottleneck.compress(self.y, self.indexes, self.means_hat)
 
 
     def decode_image(self, y_strings):
@@ -210,9 +225,13 @@ class VideoModel(nn.Module):
         x_hat : Tensor
             Reconstructed image data | *(batch_size, channels, height, width)*
         '''
+        self.scales_hat, self.means_hat = self.entropy_parameters(self.hyper_params_dec).chunk(2, 1)
+
+        self.indexes = self.image_bottleneck.build_indexes(self.scales_hat)
 
         # >>> y_hat <- Q(y_strings, sigma_hat)
-        self.y_hat = self.image_bottleneck.decompress(y_strings, self.scales_dec)
+        self.y = self.image_bottleneck.decompress(y_strings, self.indexes, means=self.means_hat)
 
         # >>> x_hat <- g_s(y_hat)
-        return self.image_synthesis(self.y_hat)
+        return self.image_synthesis(self.y)
+    

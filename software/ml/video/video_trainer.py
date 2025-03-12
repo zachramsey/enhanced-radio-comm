@@ -36,7 +36,7 @@ class VideoModelTrainer:
         self.device = device
 
         self.data = dataset
-        self.model = VideoModel(self.network_channels, self.compress_channels).to(self.device)
+        self.model = VideoModel(self.network_channels, self.compress_channels, self.batch_size).to(self.device)
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
 
     @staticmethod
@@ -69,15 +69,20 @@ class VideoModelTrainer:
             return bpp_loss, distortion_loss, combined_loss
     
     def train(self):
+        total_losses, rate_losses, distortion_losses = None, None, None
         for epoch in range(self.epochs):
-            self.train_epoch(epoch)
+            total_losses, rate_losses, distortion_losses = self.train_epoch(epoch)
             # self.test_epoch()
+        self.plot_losses(total_losses, rate_losses, distortion_losses)
         self.simulate()
         torch.save(self.model.state_dict(), self.save_model_path)
 
     def train_epoch(self, epoch):
         self.model.train()
-        for batch_idx, (data, _) in enumerate(self.data.train):
+        rate_losses = []
+        distortion_losses = []
+        total_losses = []
+        for i, (data, _) in enumerate(self.data.train):
             data = data.to(self.device)
 
             self.optimizer.zero_grad()
@@ -85,17 +90,24 @@ class VideoModelTrainer:
             rate_loss, distortion_loss, loss = self._rate_distortion_loss(reconstruction, y_likelihoods, z_likelihoods, data, self.distortion_lambda)
             loss.backward()
             self.optimizer.step()
+            self.model.bottleneck_update()
+
+            rate_losses.append(rate_loss.item())
+            distortion_losses.append(distortion_loss.item())
+            total_losses.append(loss.item())
 
             train_len = len(self.data.train.dataset)
             num_steps = train_len // self.batch_size
-            msg = (f"Train Epoch: {epoch} [{batch_idx * len(data)}/{train_len} "
-                   f"({100. * batch_idx / train_len:.0f}%)]\t"
+            msg = (f"Train Epoch: {epoch} [{i * len(data)}/{train_len} "
+                   f"({100. * i / train_len:.0f}%)] | \t"
                    f"Loss: {loss.item():.6f} | "
                    f"Distortion Loss: {distortion_loss.item():.6f} | "
                    f"Rate Loss: {rate_loss.item():.6f}")
-            self._print_inline_every(batch_idx, 1, num_steps, msg)
+            self._print_inline_every(i, 1, num_steps, msg)
 
-            if batch_idx == 50: break
+            if i == 200: break
+
+        return total_losses, rate_losses, distortion_losses
 
     def test_epoch(self):
         self.model.eval()
@@ -103,7 +115,7 @@ class VideoModelTrainer:
         total_distortion_loss = 0
         total_rate_loss = 0
         with torch.no_grad():
-            for batch_idx, (data, _) in enumerate(self.data.test):
+            for i, (data, _) in enumerate(self.data.test):
                 data = data.to(self.device)
 
                 reconstruction, y_likelihoods, z_likelihoods = self.model(data)
@@ -133,39 +145,44 @@ class VideoModelTrainer:
             for data, _ in self.data.example:
                 data = data.to(self.device)
 
+                reconstruction, _, _ = self.model(data)
+
                 z_strings = self.model.encode_hyper(data)
 
-                # TODO: Add noise and drop data to simulate transmission
-                z_strings_noisy = z_strings
+                # z_strings_noisy = z_strings     # TODO: Add noise and drop data to simulate transmission
 
-                self.model.decode_hyper(z_strings_noisy)
+                self.model.decode_hyper(z_strings)
                 
                 y_strings = self.model.encode_image()
 
-                # TODO: Add noise and drop data to simulate transmission
-                y_strings_noisy = y_strings
+                # y_strings_noisy = y_strings     # TODO: Add noise and drop data to simulate transmission
 
-                reconstruction = self.model.decode_image(y_strings_noisy)
+                reconstruction = self.model.decode_image(y_strings)
 
                 # Visualize the original and reconstructed image
                 original_imgs_np.append(self._tensor_to_image(data))
                 reconstructed_imgs_np.append(self._tensor_to_image(reconstruction))
 
             num_examples = len(original_imgs_np)
-            plt.figure(figsize=(10, 5))
+            fig, axs = plt.subplots(2, num_examples, figsize=(20, 5))
             for i in range(num_examples):
-                plt.subplot(2, num_examples, i + 1)
-                plt.imshow(original_imgs_np[i])
-                plt.title("Original Image")
-                plt.subplot(2, num_examples, num_examples + i + 1)
-                plt.imshow(reconstructed_imgs_np[i])
-                plt.title("Reconstructed Image")
-            plt.show()
+                axs[0, i].imshow(original_imgs_np[i])
+                axs[0, i].axis('off')
+                axs[1, i].imshow(reconstructed_imgs_np[i])
+                axs[1, i].axis('off')
+            plt.savefig('simulation.png')
+
+    def plot_losses(self, total_losses, rate_losses, distortion_losses):
+        plt.plot(total_losses, label='Total Loss')
+        plt.plot(rate_losses, label='Rate Loss')
+        plt.plot(distortion_losses, label='Distortion Loss')
+        plt.legend()
+        plt.savefig('losses.png')
 
 
 # --- Main Training and Testing ---
 if __name__ == "__main__":
-    dataset = ImageDataLoader(DATASET_DIR, DATASET, BATCH_SIZE, test_pct=0.05, num_examples=10)
+    dataset = ImageDataLoader(DATASET_DIR, DATASET, BATCH_SIZE, test_pct=0.05, num_examples=5)
     trainer = VideoModelTrainer(
         dataset,
         EPOCHS,
