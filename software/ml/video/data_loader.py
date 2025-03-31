@@ -5,20 +5,20 @@ from torch.utils.data import DataLoader, random_split
 from torch.utils.data.dataset import Dataset
 
 class ImageDataLoader:
-    train_dataset: Dataset
-    val_dataset: Dataset = None
-    test_dataset: Dataset = None
-    example_dataset: Dataset = None
+    train_data: Dataset
+    val_data: Dataset = None
+    test_data: Dataset = None
+    example_data: Dataset = None
 
     def __init__(
             self,
             dataset_dir: str,
-            dataset: str = 'places365',
+            dataset: str = 'sun397',
             batch_size: int = 32,
-            train_pct: float = None, 
-            val_pct: float = None, 
-            test_pct: float = None, 
-            num_examples: int = None
+            train_pct: float = 0, 
+            val_pct: float = 0, 
+            test_pct: float = 0, 
+            num_examples: int = 0
         ):
 
         self.dataset_path = dataset_dir
@@ -34,56 +34,61 @@ class ImageDataLoader:
             transforms.ToTensor()
         ])
 
-        os.makedirs(dataset_dir, exist_ok=True)
+        if not os.path.exists(dataset_dir):
+            os.makedirs(dataset_dir)
+            
         if dataset == 'places365':
             self._get_places365()
+        elif dataset == 'sun397':
+            self._get_sun397()
         else:
             raise ValueError(f"Dataset {dataset} not supported")
 
-        self.train_dataloader = DataLoader(self.train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, drop_last=True)
-        if self.val_dataset is not None:
-            self.val_dataloader = DataLoader(self.val_dataset, batch_size=batch_size, shuffle=False, num_workers=4, drop_last=True)
-        if self.test_dataset is not None:
-            self.test_dataloader = DataLoader(self.test_dataset, batch_size=batch_size, shuffle=False, num_workers=4, drop_last=True)
-        if self.example_dataset is not None:
-            self.example_dataloader = DataLoader(self.example_dataset, batch_size=1, shuffle=False, num_workers=4)
-
     def _get_places365(self):
-        self.train_dataset = datasets.Places365(root=self.dataset_path, split='train-standard', download=True, transform=self.common_transform)
+        self.train_data = datasets.Places365(root=self.dataset_path, split='train-standard', download=True, transform=self.common_transform)
         val_test_dataset = datasets.Places365(root=self.dataset_path, split='val', download=True, transform=self.common_transform)
-        
-        if self.num_examples is not None:
-            self.example_dataset, val_test_dataset = random_split(val_test_dataset, [self.num_examples, len(val_test_dataset) - self.num_examples])
-        
-        if self.val_pct is not None:
-            self.val_dataset, self.test_dataset = random_split(val_test_dataset, (self.val_pct, 1-self.val_pct))
-            self.val_dataloader = DataLoader(self.val_dataset, batch_size=self.batch_size, shuffle=False, num_workers=4, drop_last=True)
-            self.test_dataloader = DataLoader(self.test_dataset, batch_size=self.batch_size, shuffle=False, num_workers=4, drop_last=True)
-        elif self.test_pct is not None:
-            self.val_dataset, self.test_dataset = random_split(val_test_dataset, (1-self.test_pct, self.test_pct))
-            self.val_dataloader = DataLoader(self.val_dataset, batch_size=self.batch_size, shuffle=False, num_workers=4, drop_last=True)
-            self.test_dataloader = DataLoader(self.test_dataset, batch_size=self.batch_size, shuffle=False, num_workers=4, drop_last=True)
+        self._split_data(val_test_dataset)
+
+    def _get_sun397(self):
+        dataset = datasets.SUN397(root=self.dataset_path, download=True, transform=self.common_transform)
+        self._split_data(dataset)
+
+    def _split_data(self, dataset: Dataset):
+        n_rem = len(dataset)
+        if self.train_pct > 0:
+            n_train = int(n_rem * self.train_pct)
+            n_rem -= n_train
+            self.train_data, dataset = random_split(dataset, [n_train, n_rem])
+
+        if self.num_examples > 0:
+            n_rem -= self.num_examples
+            self.example_data, dataset = random_split(dataset, [self.num_examples, n_rem])
+
+        if self.val_pct == 0:
+            self.test_data = dataset
+        elif self.test_pct == 0:
+            self.val_data = dataset
         else:
-            self.val_dataset = val_test_dataset
-            self.val_dataloader = DataLoader(self.val_dataset, batch_size=self.batch_size, shuffle=False, num_workers=4, drop_last=True)
-            self.test_dataloader = None
+            n_test = int(n_rem * self.test_pct / (self.val_pct + self.test_pct)) - self.num_examples
+            self.val_data, self.test_data = random_split(dataset, [n_rem - n_test, n_test])
 
     @property
-    def train(self):
-        assert self.train_dataloader is not None, "Where's the training data? This should not happen!"
-        return self.train_dataloader
+    def train_dl(self):
+        assert self.train_data is None, "Where's the training data? This should not happen!"
+        return DataLoader(self.train_data, batch_size=self.batch_size, shuffle=True, num_workers=4, drop_last=True)
     
     @property
-    def val(self):
-        assert self.val_dataloader is not None, "Validation set not available"
-        return self.val_dataloader
+    def val_dl(self):
+        assert self.val_data is None, "Validation set not available"
+        return DataLoader(self.val_data, batch_size=self.batch_size, shuffle=False, num_workers=4, drop_last=True)
     
     @property
-    def test(self):
-        assert self.test_dataloader is not None, "Test set not available"
-        return self.test_dataloader
+    def test_dl(self):
+        assert self.test_data is None, "Test set not available"
+        return DataLoader(self.test_data, batch_size=self.batch_size, shuffle=False, num_workers=4, drop_last=True)
     
     @property
-    def example(self):
-        assert self.example_dataloader is not None, "Example set not available"
-        return self.example_dataloader
+    def example_dl(self):
+        assert self.example_data is not None, "Example set not available"
+        return DataLoader(self.example_data, batch_size=1, shuffle=False, num_workers=4)
+    

@@ -36,7 +36,7 @@ class VideoModelTrainer:
         distortion_losses = []
         total_losses = []
         eval_losss = np.inf
-        for i, (data, _) in enumerate(self.data.train):
+        for i, (data, _) in enumerate(self.data.train_dl):
             data = data.to(DEVICE)
 
             self.optimizer.zero_grad()
@@ -50,7 +50,7 @@ class VideoModelTrainer:
             distortion_losses.append(distortion_loss.item())
             total_losses.append(loss.item())
 
-            train_len = len(self.data.train.dataset)
+            train_len = len(self.data.train_dl.dataset)
             num_steps = train_len // BATCH_SIZE
             msg = (f"Train Step: {i * len(data)}/{train_len} | "
                    f"Rate Loss: {rate_loss.item():.6f} | "
@@ -79,7 +79,7 @@ class VideoModelTrainer:
         total_distortion_loss = 0
         total_rate_loss = 0
         with torch.no_grad():
-            for i, (data, _) in enumerate(self.data.val):
+            for i, (data, _) in enumerate(self.data.val_dl):
                 data = data.to(DEVICE)
 
                 reconstruction, y_likelihoods, z_likelihoods = self.model(data)
@@ -89,7 +89,7 @@ class VideoModelTrainer:
                 total_distortion_loss += distortion_loss.item()
                 total_rate_loss += rate_loss.item()
 
-        len_test = len(self.data.test.dataset)
+        len_test = len(self.data.test_dl.dataset)
         avg_loss = total_loss / len_test
         avg_distortion_loss = total_distortion_loss / len_test
         avg_rate_loss = total_rate_loss / len_test
@@ -101,7 +101,7 @@ class VideoModelTrainer:
         return avg_loss, avg_rate_loss, avg_distortion_loss
     
     def simulate(self):
-        if self.data.example is None:
+        if self.data.example_dl is None:
             print("No example dataset available")
             return
         
@@ -112,7 +112,7 @@ class VideoModelTrainer:
         with torch.no_grad():
             original_imgs_np = []
             reconstructed_imgs_np = []
-            for data, _ in self.data.example:
+            for data, _ in self.data.example_dl:
                 data = data.to(DEVICE)
 
                 reconstruction, _, _ = self.model(data)
@@ -152,13 +152,21 @@ class VideoModelTrainer:
         plt.legend()
         plt.savefig(PLOT_DIR + "losses.png")
 
-        
+
 if __name__ == "__main__":
     if not os.path.exists(DATASET_DIR): os.makedirs(DATASET_DIR)
     if not os.path.exists(MODEL_DIR): os.makedirs(MODEL_DIR)
     if not os.path.exists(PLOT_DIR): os.makedirs(PLOT_DIR)
     if not os.path.exists(EXPORT_DIR): os.makedirs(EXPORT_DIR)
 
-    dataset = ImageDataLoader(DATASET_DIR, DATASET, BATCH_SIZE, val_pct=0.05, num_examples=5)
+    dataset = ImageDataLoader(
+        DATASET_DIR, 
+        DATASET, 
+        BATCH_SIZE,
+        train_pct=TRAIN_PCT,
+        val_pct=VAL_PCT,
+        test_pct=TEST_PCT,
+        num_examples=NUM_EXAMPLES
+    )
     trainer = VideoModelTrainer(dataset)
     trainer.train()

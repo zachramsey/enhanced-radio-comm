@@ -1,11 +1,16 @@
 import torch
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-DATASET = "places365"
 DATASET_DIR = "./software/ml/datasets/"
 PLOT_DIR = "./software/ml/plots/"
 MODEL_DIR = "./software/ml/models/"
 EXPORT_DIR = "./software/ml/exports/"
+
+DATASET = "sun397"
+TRAIN_PCT = 0.95
+VAL_PCT = 0.025
+TEST_PCT = 0.025
+NUM_EXAMPLES = 5
 
 BATCH_SIZE = 16
 NETWORK_CHANNELS = 128
