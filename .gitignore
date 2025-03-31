@@ -261,6 +261,12 @@ pyrightconfig.json
 # !.vscode/extensions.json
 # !.vscode/*.code-snippets
 
+software/ml/_scratch/
+software/ml/datasets/
+software/ml/plots/
+software/ml/models/
+software/ml/exports/
+
 # Local History for Visual Studio Code
 .history/
 

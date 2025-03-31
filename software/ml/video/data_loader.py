@@ -57,10 +57,16 @@ class ImageDataLoader:
         
         if self.val_pct is not None:
             self.val_dataset, self.test_dataset = random_split(val_test_dataset, (self.val_pct, 1-self.val_pct))
+            self.val_dataloader = DataLoader(self.val_dataset, batch_size=self.batch_size, shuffle=False, num_workers=4, drop_last=True)
+            self.test_dataloader = DataLoader(self.test_dataset, batch_size=self.batch_size, shuffle=False, num_workers=4, drop_last=True)
         elif self.test_pct is not None:
             self.val_dataset, self.test_dataset = random_split(val_test_dataset, (1-self.test_pct, self.test_pct))
+            self.val_dataloader = DataLoader(self.val_dataset, batch_size=self.batch_size, shuffle=False, num_workers=4, drop_last=True)
+            self.test_dataloader = DataLoader(self.test_dataset, batch_size=self.batch_size, shuffle=False, num_workers=4, drop_last=True)
         else:
             self.val_dataset = val_test_dataset
+            self.val_dataloader = DataLoader(self.val_dataset, batch_size=self.batch_size, shuffle=False, num_workers=4, drop_last=True)
+            self.test_dataloader = None
 
     @property
     def train(self):
