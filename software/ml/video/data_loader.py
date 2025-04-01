@@ -1,14 +1,12 @@
-
 import os
 from torchvision import datasets, transforms
-from torch.utils.data import DataLoader, random_split
-from torch.utils.data.dataset import Dataset
+from torch.utils.data import Dataset, DataLoader, random_split
 
 class ImageDataLoader:
-    train_data: Dataset
-    val_data: Dataset = None
-    test_data: Dataset = None
-    example_data: Dataset = None
+    train_data: DataLoader
+    val_data: DataLoader
+    test_data: DataLoader
+    example_data: DataLoader
 
     def __init__(
             self,
@@ -58,37 +56,41 @@ class ImageDataLoader:
         if self.train_pct > 0:
             n_train = int(n_rem * self.train_pct)
             n_rem -= n_train
-            self.train_data, dataset = random_split(dataset, [n_train, n_rem])
+            train_data, dataset = random_split(dataset, [n_train, n_rem])
+            self.train_data = DataLoader(train_data, batch_size=self.batch_size, shuffle=True, num_workers=4, drop_last=True)
 
         if self.num_examples > 0:
             n_rem -= self.num_examples
-            self.example_data, dataset = random_split(dataset, [self.num_examples, n_rem])
+            example_data, dataset = random_split(dataset, [self.num_examples, n_rem])
+            self.example_data = DataLoader(example_data, batch_size=1, shuffle=False, num_workers=4)
 
         if self.val_pct == 0:
-            self.test_data = dataset
+            self.test_data = DataLoader(dataset, batch_size=self.batch_size, shuffle=False, num_workers=4, drop_last=True)
         elif self.test_pct == 0:
-            self.val_data = dataset
+            self.val_data = DataLoader(dataset, batch_size=self.batch_size, shuffle=False, num_workers=4, drop_last=True)
         else:
             n_test = int(n_rem * self.test_pct / (self.val_pct + self.test_pct)) - self.num_examples
-            self.val_data, self.test_data = random_split(dataset, [n_rem - n_test, n_test])
+            val_data, test_data = random_split(dataset, [n_rem - n_test, n_test])
+            self.val_data = DataLoader(val_data, batch_size=self.batch_size, shuffle=False, num_workers=4, drop_last=True)
+            self.test_data = DataLoader(test_data, batch_size=self.batch_size, shuffle=False, num_workers=4, drop_last=True)
 
     @property
     def train_dl(self):
-        assert self.train_data is None, "Where's the training data? This should not happen!"
-        return DataLoader(self.train_data, batch_size=self.batch_size, shuffle=True, num_workers=4, drop_last=True)
+        assert self.train_data is not None, "Where's the training data? This should not happen!"
+        return self.train_data
     
     @property
     def val_dl(self):
-        assert self.val_data is None, "Validation set not available"
-        return DataLoader(self.val_data, batch_size=self.batch_size, shuffle=False, num_workers=4, drop_last=True)
+        assert self.val_data is not None, "Validation set not available"
+        return self.val_data
     
     @property
     def test_dl(self):
-        assert self.test_data is None, "Test set not available"
-        return DataLoader(self.test_data, batch_size=self.batch_size, shuffle=False, num_workers=4, drop_last=True)
+        assert self.test_data is not None, "Test set not available"
+        return self.test_data
     
     @property
     def example_dl(self):
         assert self.example_data is not None, "Example set not available"
-        return DataLoader(self.example_data, batch_size=1, shuffle=False, num_workers=4)
+        return self.example_data
     
