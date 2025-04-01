@@ -148,5 +148,6 @@ class VideoModel(nn.Module):
         path : str
             Path to load the model state dict
         '''
-        self.load_state_dict(torch.load(path))    
-    
+        self.bottleneck_update()
+        self.load_state_dict(torch.load(path))
+        print(f"Model loaded from {path}")

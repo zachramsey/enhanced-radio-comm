@@ -1,4 +1,6 @@
 import os
+import pickle
+import PIL.Image
 from torchvision import datasets, transforms
 from torch.utils.data import Dataset, DataLoader, random_split
 
@@ -19,7 +21,7 @@ class ImageDataLoader:
             num_examples: int = 0
         ):
 
-        self.dataset_path = dataset_dir
+        self.dataset_dir = dataset_dir
         self.batch_size = batch_size
 
         self.train_pct = train_pct
@@ -43,12 +45,46 @@ class ImageDataLoader:
             raise ValueError(f"Dataset {dataset} not supported")
 
     def _get_places365(self):
-        self.train_data = datasets.Places365(root=self.dataset_path, split='train-standard', download=True, transform=self.common_transform)
-        val_test_dataset = datasets.Places365(root=self.dataset_path, split='val', download=True, transform=self.common_transform)
+        self.train_data = datasets.Places365(root=self.dataset_dir, split='train-standard', download=True, transform=self.common_transform)
+        val_test_dataset = datasets.Places365(root=self.dataset_dir, split='val', download=True, transform=self.common_transform)
         self._split_data(val_test_dataset)
 
     def _get_sun397(self):
-        dataset = datasets.SUN397(root=self.dataset_path, download=True, transform=self.common_transform)
+        print("Downloading SUN397 dataset...")
+        dataset = datasets.SUN397(root=self.dataset_dir, download=True, transform=self.common_transform)
+        
+        # Remove images smaller than 480x640
+        if os.path.exists(self.dataset_dir + "image_files.pkl") and os.path.exists(self.dataset_dir + "labels.pkl"):
+            print("Loading existing image files and labels...")
+            with open(self.dataset_dir + "image_files.pkl", "rb") as f:
+                new_image_files = pickle.load(f)
+            with open(self.dataset_dir + "labels.pkl", "rb") as f:
+                new_labels = pickle.load(f)
+        else:
+            new_image_files = []
+            new_labels = []
+            len_dataset = len(dataset)
+            for i in range(len_dataset):
+                if i % 250 == 0:
+                    print(f"Removing images smaller than 480x640: {i}/{len_dataset}", end="\r")
+                image_file = dataset._image_files[i]
+                image = PIL.Image.open(image_file).convert("RGB")
+                if image.size[0] >= 640 and image.size[1] >= 480:
+                    new_image_files.append(dataset._image_files[i])
+                    new_labels.append(dataset._labels[i])
+            print(f"\nRemoved {len_dataset - len(new_image_files)} images smaller than 480x640")
+
+            print("Saving image files and labels...")
+            with open(self.dataset_dir + "image_files.pkl", "wb") as f:
+                pickle.dump(new_image_files, f)
+            with open(self.dataset_dir + "labels.pkl", "wb") as f:
+                pickle.dump(new_labels, f)
+
+        ## Update dataset with new image files and labels
+        dataset._image_files = new_image_files
+        dataset._labels = new_labels
+
+        print("Splitting dataset...")
         self._split_data(dataset)
 
     def _split_data(self, dataset: Dataset):
