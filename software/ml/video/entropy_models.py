@@ -41,6 +41,8 @@ from compressai._CXX import pmf_to_quantized_cdf
 from compressai.ops.bound_ops import LowerBound
 from compressai import ans
 
+from utils import simulate_impairments, simulate_errors
+
 class EntropyBottleneck(nn.Module):
     _offset: Tensor
 
@@ -175,41 +177,43 @@ class EntropyBottleneck(nn.Module):
                 logits = logits + torch.tanh(factor) * torch.tanh(logits)
         return logits
 
-    def forward(self, x: Tensor, training: bool = True) -> Tuple[Tensor, Tensor]:
+    def forward(self, x: Tensor) -> Tuple[Tensor, Tensor]:
+
         # x from B x C x ... to C x B x ...
         perm = torch.cat((
             torch.tensor([1, 0], dtype=torch.long, device=x.device),
             torch.arange(2, x.ndim, dtype=torch.long, device=x.device),
         ))
         inv_perm = perm
+        
+        # Compress, add noise, and decompress
+        strings = self.compress(x)
+        # x_ = [simulate_impairments(string, device=x.device) for string in strings]
+        x_ = [simulate_errors(string) for string in strings]
+        x_ = self.decompress(x_, x.size()[-2:])
+        x_ = x + (x_ - x).detach()  # Straight-through grad (bypass non-differentiable nonsense above)
 
-        x = x.permute(*perm).contiguous()
-        shape = x.size()
-        values = x.reshape(x.size(0), 1, -1)
-
-        # Add noise or quantize
-        if training:
-            outputs = values + torch.empty_like(values).uniform_(-0.5, 0.5)
-        else:
-            medians = self.quantiles[:, :, 1:2]
-            outputs = torch.round(values.clone() - medians) + medians
+        x_ = x_.permute(*perm).contiguous()
+        shape = x_.size()
+        x_ = x_.reshape(x_.size(0), 1, -1)
 
         # Compute likelihood
-        lower = self._logits_cumulative(outputs - 0.5, False)
-        upper = self._logits_cumulative(outputs + 0.5, False)
+        lower = self._logits_cumulative(x_ - 0.5, False)
+        upper = self._logits_cumulative(x_ + 0.5, False)
         likelihood = torch.sigmoid(upper) - torch.sigmoid(lower)
 
         if self.use_likelihood_bound:
             likelihood = self.likelihood_lower_bound(likelihood)
 
         # Convert back to input tensor shape
-        outputs = outputs.reshape(shape)
-        outputs = outputs.permute(*inv_perm).contiguous()
+        x_ = x_.reshape(shape)
+        x_ = x_.permute(*inv_perm).contiguous()
 
         likelihood = likelihood.reshape(shape)
         likelihood = likelihood.permute(*inv_perm).contiguous()
 
-        return outputs, likelihood
+        return x_, likelihood
+        
 
     @staticmethod
     def _build_indexes(size):
@@ -254,7 +258,6 @@ class EntropyBottleneck(nn.Module):
         spatial_dims = len(x.size()) - 2
         medians = medians.reshape(-1, *([1] * spatial_dims)) if spatial_dims > 0 else medians.reshape(-1)
         medians = medians.expand(x.size(0), *([-1] * (spatial_dims + 1)))
-
         symbols = torch.round(x.clone() - medians).int()
 
         strings = []
@@ -267,7 +270,6 @@ class EntropyBottleneck(nn.Module):
                 self._offset.reshape(-1).int().tolist(),
             )
             strings.append(rv)
-
         return strings
 
     def decompress(self, strings, size):
@@ -290,6 +292,7 @@ class EntropyBottleneck(nn.Module):
             )
             outputs[i] = torch.tensor(values, device=outputs.device, dtype=outputs.dtype).reshape(outputs[i].size())
         outputs = outputs.to(medians.dtype) + medians
+        outputs = torch.nn.functional.normalize(outputs)
         return outputs
 
 
@@ -361,18 +364,18 @@ class GaussianConditional(nn.Module):
         self._offset = -pmf_center
         self._cdf_length = pmf_length + 2
 
-    def forward(self, inputs: Tensor, scales: Tensor, means: Optional[Tensor] = None, training: bool = True) -> Tuple[Tensor, Tensor]:
-        if training is None:
-            training = self.training
-
-        # Add noise or quantize
-        if training:
-            outputs = inputs + torch.empty_like(inputs).uniform_(-0.5, 0.5)
-        else:
-            outputs = torch.round(inputs.clone() - means) + means
+    
+    def forward(self, x: Tensor, scales: Tensor, means: Tensor) -> Tuple[Tensor, Tensor]:
+        # Add noise
+        indexes = self.build_indexes(scales)
+        strings = self.compress(x, indexes, means)
+        # x_ = [simulate_impairments(string, device=x.device) for string in strings]
+        x_ = [simulate_errors(string) for string in strings]
+        x_ = self.decompress(x_, indexes, means=means)
+        x_ = x + (x_ - x).detach()  # Same nonsense, different straight-through grad
 
         # Compute likelihood
-        values = outputs if means is None else outputs - means
+        values = x_ - means
         scales = self.lower_bound_scale(scales)
 
         values = torch.abs(values)
@@ -384,7 +387,7 @@ class GaussianConditional(nn.Module):
         if self.use_likelihood_bound:
             likelihood = self.likelihood_lower_bound(likelihood)
 
-        return outputs, likelihood
+        return x_, likelihood
 
     def build_indexes(self, scales: Tensor) -> Tensor:
         scales = self.lower_bound_scale(scales)
@@ -421,4 +424,5 @@ class GaussianConditional(nn.Module):
             )
             outputs[i] = torch.tensor(values, device=outputs.device, dtype=outputs.dtype).reshape(outputs[i].size())
         outputs = outputs.to(dtype) + means
+        outputs = torch.nn.functional.normalize(outputs)
         return outputs
