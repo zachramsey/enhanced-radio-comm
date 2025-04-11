@@ -3,8 +3,7 @@ import torch
 import torch.nn as nn
 
 from compressai.layers import GDN
-# from compressai.entropy_models import EntropyBottleneck, GaussianConditional
-from entropy_models import EntropyBottleneck, GaussianConditional
+from share.entropy_models import EntropyBottleneck, GaussianConditional
 
 class VideoModel(nn.Module):
     def __init__(self, c_network: int, c_compress: int, batch_size: int = 1):
@@ -59,8 +58,10 @@ class VideoModel(nn.Module):
         # Q, AE, AD
         self.image_bottleneck = GaussianConditional(scale_table=[0.11, 0.22, 0.44, 0.88, 1.76, 3.52, 7.04, 14.08])
         self.entropy_parameters = nn.Sequential(
-            nn.Conv2d(c_compress, 2 * c_compress, 3, padding=1),
+            nn.Conv2d(c_compress, 2*c_compress, 3, padding=1, groups=2),
             nn.ReLU(inplace=True),
+            # nn.Conv2d(2*c_compress, 2*c_compress, 3, padding=1),
+            # nn.ReLU(inplace=True),
         )
 
         # g_s
@@ -116,7 +117,7 @@ class VideoModel(nn.Module):
         self.hyper_params = self.hyper_synthesis(self.z_hat)
 
         # Get the hyper-parameters (mean & std of a Gaussian distribution) from the hyper-prior
-        self.sigma_hat, self.means_hat = self.entropy_parameters(self.hyper_params).chunk(2, 1)
+        self.sigma_hat, self.means_hat = torch.chunk(self.entropy_parameters(self.hyper_params), 2, 1)
 
         # Add noise to the latent image (for training)
         self.y_hat, self.y_likelihoods = self.image_bottleneck(self.y, self.sigma_hat, means=self.means_hat)

@@ -11,10 +11,9 @@ import numpy as np
 from config import *
 from data_loader import ImageDataLoader
 from model import VideoModel
-from encoder import VideoModelEncoder
-from decoder import VideoModelDecoder
-from entropy_models import simulate_impairments, simulate_errors
-from utils import print_inline_every, tensor_to_image
+from encoder import VideoEncoder
+from decoder import VideoDecoder
+from ..share.utils import print_inline_every, tensor_to_image, simulate_errors
 
 # Theory: research.nvidia.com/sites/default/files/pubs/2017-03_Loss-Functions-for/NN_ImgProc.pdf
 # Implementation: https://github.com/psyrocloud/MS-SSIM_L1_LOSS
@@ -74,7 +73,7 @@ class VideoModelTrainer:
             reconstruction, y_likelihoods, z_likelihoods = self.model(data)
             rate_loss, distortion_loss, loss = self.rate_distortion_loss(reconstruction, y_likelihoods, z_likelihoods, data)
             loss.backward()
-            # torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
             self.optimizer.step()
 
             rate_losses.append(rate_loss.item())
@@ -143,8 +142,8 @@ class VideoModelTrainer:
         return avg_loss, avg_rate_loss, avg_distortion_loss
     
     def simulate(self, step, data_loader: DataLoader):
-        encoder = VideoModelEncoder(self.ch_network, self.ch_compress, self.batch_size).to(self.device)
-        decoder = VideoModelDecoder(self.ch_network, self.ch_compress, self.batch_size).to(self.device)
+        encoder = VideoEncoder(self.ch_network, self.ch_compress, self.batch_size).to(self.device)
+        decoder = VideoDecoder(self.ch_network, self.ch_compress, self.batch_size).to(self.device)
         encoder.load(self.model_dir + self.model_path)
         decoder.load(self.model_dir + self.model_path)
 
@@ -156,12 +155,12 @@ class VideoModelTrainer:
 
                 z_strings = encoder.encode_hyper(data)
                 # z_strings = [simulate_impairments(z_strings[0], interference_prob=1.0)]
-                z_strings = [simulate_errors(z_strings[0], p=0.92, r=0.08)]
+                z_strings = simulate_errors(z_strings, p=0.92, r=0.08)
                 decoder.decode_hyper(z_strings)
                 
                 y_strings = encoder.encode_image()
                 # y_strings = [simulate_impairments(y_strings[0], interference_prob=1.0)]
-                z_strings = [simulate_errors(z_strings[0], p=0.92, r=0.08)]
+                z_strings = simulate_errors(z_strings, p=0.92, r=0.08)
                 reconstruction = decoder.decode_image(y_strings)
 
                 # Visualize the original and reconstructed image

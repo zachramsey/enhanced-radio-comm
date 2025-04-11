@@ -187,32 +187,29 @@ class EntropyBottleneck(nn.Module):
         inv_perm = perm
         
         # Compress, add noise, and decompress
-        strings = self.compress(x)
-        # x_ = [simulate_impairments(string, device=x.device) for string in strings]
-        x_ = [simulate_errors(string) for string in strings]
-        x_ = self.decompress(x_, x.size()[-2:])
-        x_ = x + (x_ - x).detach()  # Straight-through grad (bypass non-differentiable nonsense above)
+        with torch.no_grad():
+            strings = self.compress(x)
+            strings = simulate_errors(strings)
+            _x = self.decompress(strings, x.size()[-2:])
+        x = x + (_x - x).detach()
 
-        x_ = x_.permute(*perm).contiguous()
-        shape = x_.size()
-        x_ = x_.reshape(x_.size(0), 1, -1)
+        x = x.permute(*perm).contiguous()
+        shape = x.size()
+        x = x.reshape(x.size(0), 1, -1)
 
         # Compute likelihood
-        lower = self._logits_cumulative(x_ - 0.5, False)
-        upper = self._logits_cumulative(x_ + 0.5, False)
+        lower = self._logits_cumulative(x - 0.5, False)
+        upper = self._logits_cumulative(x + 0.5, False)
         likelihood = torch.sigmoid(upper) - torch.sigmoid(lower)
 
         if self.use_likelihood_bound:
             likelihood = self.likelihood_lower_bound(likelihood)
 
-        # Convert back to input tensor shape
-        x_ = x_.reshape(shape)
-        x_ = x_.permute(*inv_perm).contiguous()
+        # Convert to input shape
+        x = x.reshape(shape).permute(*inv_perm).contiguous()
+        likelihood = likelihood.reshape(shape).permute(*inv_perm).contiguous()
 
-        likelihood = likelihood.reshape(shape)
-        likelihood = likelihood.permute(*inv_perm).contiguous()
-
-        return x_, likelihood
+        return x, likelihood
         
 
     @staticmethod
@@ -348,7 +345,7 @@ class GaussianConditional(nn.Module):
         samples_scale = self.scale_table.unsqueeze(1)
         samples = samples.float()
         samples_scale = samples_scale.float()
-        upper = 0.5 * torch.erfc(-(2**-0.5) * ((0.5 - samples) / samples_scale))
+        upper = 0.5 * torch.special.erfc(-(2**-0.5) * ((0.5 - samples) / samples_scale))
         lower = 0.5 * torch.erfc(-(2**-0.5) * ((-0.5 - samples) / samples_scale))
         pmf = upper - lower
 
@@ -368,14 +365,14 @@ class GaussianConditional(nn.Module):
     def forward(self, x: Tensor, scales: Tensor, means: Tensor) -> Tuple[Tensor, Tensor]:
         # Add noise
         indexes = self.build_indexes(scales)
-        strings = self.compress(x, indexes, means)
-        # x_ = [simulate_impairments(string, device=x.device) for string in strings]
-        x_ = [simulate_errors(string) for string in strings]
-        x_ = self.decompress(x_, indexes, means=means)
-        x_ = x + (x_ - x).detach()  # Same nonsense, different straight-through grad
+        with torch.no_grad():
+            strings = self.compress(x, indexes, means)
+            strings = simulate_errors(strings)
+            _x = self.decompress(strings, indexes, means=means)
+        x = x + (_x - x).detach()
 
         # Compute likelihood
-        values = x_ - means
+        values = x - means
         scales = self.lower_bound_scale(scales)
 
         values = torch.abs(values)
@@ -387,7 +384,7 @@ class GaussianConditional(nn.Module):
         if self.use_likelihood_bound:
             likelihood = self.likelihood_lower_bound(likelihood)
 
-        return x_, likelihood
+        return x, likelihood
 
     def build_indexes(self, scales: Tensor) -> Tensor:
         scales = self.lower_bound_scale(scales)
