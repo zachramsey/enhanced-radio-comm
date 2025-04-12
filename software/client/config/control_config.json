@@ -1,0 +1,6 @@
+{
+  "role": "control",
+  "auto_launch": true,
+  "preferred_remote": null,
+  "port": 5000
+}
