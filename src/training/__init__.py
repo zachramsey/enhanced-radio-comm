@@ -1,6 +1,6 @@
 
 __all__ = [
-    "control",
-    "share",
-    "video"
+    # "control",
+    "video",
+    "main"
 ]

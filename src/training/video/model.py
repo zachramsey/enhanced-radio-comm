@@ -3,14 +3,13 @@ import torch
 import torch.nn as nn
 
 from compressai.layers import GDN
-from ..share import EntropyBottleneck, GaussianConditional
+from .bottlenecks import EntropyBottleneck, GaussianConditional
 
 class VideoModel(nn.Module):
-    def __init__(self, c_network: int, c_compress: int, batch_size: int = 1):
+    def __init__(self, c_network: int, c_compress: int):
         super(VideoModel, self).__init__()
         self.c_network = c_network
         self.c_compress = c_compress
-        self.batch_size = batch_size
 
         # g_a
         # (3, 480, 640) -> (c_network, 240, 320)
@@ -101,36 +100,40 @@ class VideoModel(nn.Module):
         z_likelihoods : Tensor
             Likelihood of the hyper latent encoding
         '''
-        self.bottleneck_update()  # Update the entropy bottlenecks
+        # Conform raw image data to the expected input format
+        x = x.permute(0, 3, 1, 2)  # 1 x H x W x C -> 1 x C x H x W
+        x = x.float() / 255.0   #      [0, 255] -> [0.0, 1.0]
 
         # Encode latent image from input image
-        self.y = self.image_analysis(x)
+        y = self.image_analysis(x)
 
         # Encode latent hyper-prior from latent image
-        self.z = self.hyper_analysis(self.y)
+        z = self.hyper_analysis(y)
         
         # Add noise to the latent hyper-prior (for training)
-        self.z_hat, self.z_likelihoods = self.hyper_bottleneck(self.z)
-        # print("\n----------------\nz_hat:\n", self.z_hat[0], "\nz_likelihoods:\n", self.z_likelihoods[0])
+        z_hat, z_likelihoods = self.hyper_bottleneck(z)
+        # print("\n----------------\nz_hat:\n", z_hat[0], "\nz_likelihoods:\n", z_likelihoods[0])
         
         # Decode hyper-prior from compressed latent hyper-prior
-        self.hyper_params = self.hyper_synthesis(self.z_hat)
+        hyper_params = self.hyper_synthesis(z_hat)
 
         # Get the hyper-parameters (mean & std of a Gaussian distribution) from the hyper-prior
-        self.sigma_hat, self.means_hat = torch.chunk(self.entropy_parameters(self.hyper_params), 2, 1)
+        sigma_hat, means_hat = torch.chunk(self.entropy_parameters(hyper_params), 2, 1)
 
         # Add noise to the latent image (for training)
-        self.y_hat, self.y_likelihoods = self.image_bottleneck(self.y, self.sigma_hat, means=self.means_hat)
-        # print("\n----------------\ny_hat:\n", self.y_hat[0], "\ny_likelihoods:\n", self.y_likelihoods[0])
+        y_hat, y_likelihoods = self.image_bottleneck(y, sigma_hat, means=means_hat)
+        # print("\n----------------\ny_hat:\n", y_hat[0], "\ny_likelihoods:\n", y_likelihoods[0])
 
         # Decode image from decompressed latent image
-        self.reconstruction = self.image_synthesis(self.y_hat)
+        x_hat = self.image_synthesis(y_hat)
 
-        return self.reconstruction, self.y_likelihoods, self.z_likelihoods
+        # Convert the tensor to the expected output format
+        x_hat = x_hat.permute(0, 2, 3, 1)               # 1 x C x H x W -> 1 x H x W x C
+        min = x_hat.min()
+        x_hat = (x_hat - min) / (x_hat.max() - min)     # Normalize to [0, 1]
+        x_hat = (x_hat * 255).round()                   # [0.0, 1.0] -> [0, 255]
 
-    def bottleneck_update(self):
-        self.hyper_bottleneck.update()
-        self.image_bottleneck.update()
+        return x_hat, y_likelihoods, z_likelihoods
     
     def save(self, path):
         '''
@@ -152,5 +155,6 @@ class VideoModel(nn.Module):
         path : str
             Path to load the model state dict
         '''
-        self.bottleneck_update()
+        self.hyper_bottleneck.update()
+        self.image_bottleneck.update()
         self.load_state_dict(torch.load(path))

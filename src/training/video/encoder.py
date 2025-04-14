@@ -1,87 +1,108 @@
 
+import torch
 from torch import ByteTensor
-from . import VideoModel
+from .model import VideoModel
 
 class VideoEncoder(VideoModel):
-    def __init__(self, network_channels: int, compress_channels: int, batch_size: int):
-        '''
-        Initialize the encoder model
+    '''
+    Video Encoder Model
 
-        Parameters
-        ----------
-        network_channels : int
-            Number of channels in the network
-        compress_channels : int
-            Number of channels for compression
-        batch_size : int
-            Batch size for processing images
-        '''
-        super().__init__(network_channels, compress_channels, batch_size)
+    Parameters
+    ----------
+    network_channels : int
+        Number of channels in the network
+    compress_channels : int
+        Number of channels for compression
+    batch_size : int
+        Batch size for processing images
+
+    Attributes
+    ----------
+    image_analysis : torch.nn.Module
+        Image analysis module
+    hyper_analysis : torch.nn.Module
+        Hyper analysis module
+    hyper_bottleneck : torch.nn.Module
+        Hyper bottleneck module
+    hyper_synthesis : torch.nn.Module
+        Hyper synthesis module
+    entropy_parameters : torch.nn.Module
+        Entropy parameters module
+    image_bottleneck : torch.nn.Module
+        Image bottleneck module
+
+    Methods
+    -------
+    encode(x) -> tuple[ByteTensor, ByteTensor]
+        Compress the image from RGB888-encoded ByteTensor
+    '''
+    def __init__(self, network_channels: int, compress_channels: int):
+        super().__init__(network_channels, compress_channels)
         self.eval()
         
-    def encode_hyper(self, x: ByteTensor) -> ByteTensor:
-        '''
-        Encode the hyper latent
+    # def encode_hyper(self, x: ByteTensor) -> ByteTensor:
+    #     '''
+    #     Encode the hyper latent
 
-        The remote device will call this function first to get the quantized hyper-prior latent,
-        which can be immediately sent to the control device before the image latent is compressed.
+    #     The remote device will call this function first to get the quantized hyper-prior latent,
+    #     which can be immediately sent to the control device before the image latent is compressed.
 
-        Parameters
-        ----------
-        x : ByteTensor
-            Input image data | *(height, width, channels)*
+    #     Parameters
+    #     ----------
+    #     x : ByteTensor
+    #         Input image data | *(height, width, channels)*
 
-        Returns
-        -------
-        z_string : ByteTensor
-            Quantized hyper-prior latent
-        '''
-        # Conform the raw image data to the expected input shape
-        x = x.permute(2, 0, 1).unsqueeze(0)
+    #     Returns
+    #     -------
+    #     z_string : ByteTensor
+    #         Quantized hyper-prior latent
+    #     '''
+    #     # Conform the raw image data to the expected input shape
+    #     x = x.permute(2, 0, 1).unsqueeze(0)
         
-        # Convert the image data to a float tensor and normalize it
-        x = x.float() / 255.0
+    #     # Convert the image data to a float tensor and normalize it
+    #     x = x.float() / 255.0
 
-        # Encode latent image from input image
-        self.y = self.image_analysis(x)
+    #     # Encode latent image from input image
+    #     self.y = self.image_analysis(x)
 
-        # Encode latent hyper-prior from latent image
-        self.z_hat = self.hyper_analysis(self.y)
+    #     # Encode latent hyper-prior from latent image
+    #     self.z_hat = self.hyper_analysis(self.y)
 
-        # Quantize the latent hyper-prior
-        z_string = self.hyper_bottleneck.compress(self.z_hat)[0]
+    #     # Quantize the latent hyper-prior
+    #     z_string = self.hyper_bottleneck.compress(self.z_hat)[0]
 
-        return z_string
+    #     return z_string
     
-    def encode_image(self) -> ByteTensor:
-        '''
-        Encode the image latent
+    # def encode_image(self) -> ByteTensor:
+    #     '''
+    #     Encode the image latent
 
-        After the compressed hyper latent is sent to the control device,
-        the remote device will call this function to get the compressed image latent,
-        which is then sent to the control device for the final reconstruction.
+    #     After the compressed hyper latent is sent to the control device,
+    #     the remote device will call this function to get the compressed image latent,
+    #     which is then sent to the control device for the final reconstruction.
 
-        Returns
-        -------
-        y_string : ByteTensor 
-            Quantized image latent
-        '''
-        # Decode hyper-prior from latent hyper-prior
-        hyper_params = self.hyper_synthesis(self.z_hat)
+    #     Returns
+    #     -------
+    #     y_string : ByteTensor 
+    #         Quantized image latent
+    #     '''
+    #     # Decode hyper-prior from latent hyper-prior
+    #     hyper_params = self.hyper_synthesis(self.z_hat)
 
-        # Get the hyper-parameters (mean & std of a Gaussian distribution) from the hyper-prior
-        sigma_hat, means_hat = self.entropy_parameters(hyper_params).chunk(2, 1)
+    #     # Get the hyper-parameters (mean & std of a Gaussian distribution) from the hyper-prior
+    #     sigma_hat, means_hat = self.entropy_parameters(hyper_params).chunk(2, 1)
         
-        # Build the scale indexes for quantization
-        indexes = self.image_bottleneck.build_indexes(sigma_hat)
+    #     # Build the scale indexes for quantization
+    #     indexes = self.image_bottleneck.build_indexes(sigma_hat)
 
-        # Quantize the latent image with the scale indexes and hyper-prior means
-        y_string = self.image_bottleneck.compress(self.y, indexes, means_hat)[0]
+    #     # Quantize the latent image with the scale indexes and hyper-prior means
+    #     y_string = self.image_bottleneck.compress(self.y, indexes, means_hat)[0]
         
-        return y_string
+    #     return y_string
     
 
-    def encode(self, x: ByteTensor) -> tuple[ByteTensor, ByteTensor]:
+    def forward(self, x: ByteTensor) -> tuple[ByteTensor, ByteTensor]:
         '''
         Compress the image from RGB888-encoded input
 
@@ -97,11 +118,9 @@ class VideoEncoder(VideoModel):
         z_string : ByteTensor
             Quantized hyper-prior latent
         '''
-        # Conform the raw image data to the expected input shape
-        x = x.permute(2, 0, 1).unsqueeze(0)
-        
-        # Convert the image data to a float tensor and normalize it
-        x = x.float() / 255.0
+        # Conform raw image data to the expected format
+        x = x.permute(0, 3, 1, 2)   # 1 x H x W x C -> 1 x C x H x W
+        x = x.float() / 255.0       #      [0, 255] -> [0.0, 1.0]
 
         # Encode latent image from input image
         y = self.image_analysis(x)

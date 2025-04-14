@@ -4,27 +4,28 @@
 pyenv virtualenv 3.12.8 compressai
 pyenv local compressai
 
-# Install CompressAI
-pip3 install git+https://github.com/InterDigitalInc/CompressAI.git@torch_cpp_extension
-
-# Install TorchEval
-pip install --pre torcheval-nightly
-pip3 install scikit-image   # Dependency of TorchEval
-
 # Nvidia GPU
-pip3 uninstall torch torchvision -y
-pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cu126 -y
+python3 -m pip uninstall torch torchvision -y
+python3 -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126 -y
 
 # AMD GPU
-pip3 uninstall torch torchvision
-pip3 install torch torchvision --index-url https://download.pytorch.org/whl/rocm6.2.4
+python3 -m pip uninstall torch torchvision
+python3 -m pip install torch torchvision --index-url https://download.pytorch.org/whl/rocm6.2.4
+
+# Install TorchEval
+python3 -m pip install --pre torcheval-nightly
+python3 -m pip install scikit-image   # Dependency of TorchEval
+
+# Install CompressAI
+python3 -m pip install git+https://github.com/InterDigitalInc/CompressAI.git@torch_cpp_extension
 ```
 
 ### Set up compiling environment
 ``` bash
 pyenv virtualenv 3.12.8 executorch
 pyenv shell executorch
-cd software/
+# Install executorch
+cd src/
 git clone --branch release/0.6 https://github.com/pytorch/executorch.git
 cd executorch
 git submodule sync && git submodule update --init

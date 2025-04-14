@@ -264,9 +264,10 @@ pyrightconfig.json
 src/training/_scratch/
 src/training/datasets/
 src/training/plots/
-# software/models/
-# software/exports/
-software/executorch/
+src/models/
+src/exports/
+src/executorch/
+src/libtorch/
 
 # Local History for Visual Studio Code
 .history/
