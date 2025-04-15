@@ -79,6 +79,7 @@ void setup() {
 
 void loop() {
   //Read inputs: Max value of -500 and 500
+  //TODO Instead of doing PulseIn, maybe try reading the duty cycles?
   uX = pulseIn(Xin, HIGH, 60000) - 1500;
   if (uX > 500) uX = 500;
   if (uX < -500) uX = -500;
