@@ -91,6 +91,8 @@ function fetchDevices() {
             }
 
             deviceList.innerHTML = '';
+            let orangePiFound = false;
+
             devices.forEach(device => {
                 const deviceElement = document.createElement('div');
                 deviceElement.className = 'device-item';
@@ -101,9 +103,28 @@ function fetchDevices() {
                     <small>${device.address}:${device.port}</small>
                 `;
 
+                // Check if this is the Orange Pi
+                if (device.address === 'dietpi.local' && device.port === 8080) {
+                    deviceElement.classList.add('orange-pi');
+                    orangePiFound = true;
+                }
+
                 deviceElement.addEventListener('click', () => selectDevice(deviceElement, device));
                 deviceList.appendChild(deviceElement);
+
+                // Auto-select the Orange Pi if found
+                if (device.address === 'dietpi.local' && device.port === 8080) {
+                    setTimeout(() => selectDevice(deviceElement, device), 500);
+                }
             });
+
+            // Add a note if Orange Pi is found
+            if (orangePiFound) {
+                const noteElement = document.createElement('div');
+                noteElement.className = 'device-note';
+                noteElement.innerHTML = '<small>✓ Orange Pi automatically connected</small>';
+                deviceList.appendChild(noteElement);
+            }
         })
         .catch(error => {
             console.error('Error fetching devices:', error);
@@ -190,13 +211,40 @@ function startStream() {
     }
 
     streamElement = document.createElement('img');
-    streamElement.src = `http://${selectedDevice.address}:8080/?action=stream&t=${new Date().getTime()}`;
+
+    // Use the correct URL format for the Orange Pi MJPG-Streamer
+    if (selectedDevice.address === 'dietpi.local' && selectedDevice.port === 8080) {
+        streamElement.src = `http://${selectedDevice.address}:${selectedDevice.port}/?action=stream&t=${new Date().getTime()}`;
+        console.log(`Connecting to Orange Pi stream at ${streamElement.src}`);
+    } else {
+        // Generic format for other devices
+        streamElement.src = `http://${selectedDevice.address}:${selectedDevice.port}/stream?t=${new Date().getTime()}`;
+    }
 
     // Track data usage
+    let frameCount = 0;
+    const startTime = new Date().getTime();
+
     streamElement.onload = function() {
-        // Rough estimate - in a real app, you'd want to use the actual transferred bytes
-        const estimatedBytes = 30000; // Assume ~30KB per frame for 640x480 MJPEG
-        updateDataUsage(estimatedBytes);
+        frameCount++;
+
+        // Calculate actual data rate based on frame count and time
+        const currentTime = new Date().getTime();
+        const elapsedSeconds = (currentTime - startTime) / 1000;
+
+        if (elapsedSeconds >= 1) {
+            const fps = frameCount / elapsedSeconds;
+            // Rough estimate - in a real app, you'd want to use the actual transferred bytes
+            const estimatedBytes = 30000; // Assume ~30KB per frame for 640x480 MJPEG
+            updateDataUsage(estimatedBytes * fps);
+        }
+    };
+
+    // Add error handling
+    streamElement.onerror = function() {
+        console.error('Error loading stream');
+        videoPlaceholder.style.display = 'flex';
+        videoPlaceholder.innerHTML = '<p>Error connecting to stream. Please try again.</p>';
     };
 
     videoStream.appendChild(streamElement);
