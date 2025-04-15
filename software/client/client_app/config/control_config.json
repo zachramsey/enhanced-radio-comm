@@ -1,0 +1,6 @@
+{
+  "role": "control",
+  "auto_launch": true,
+  "preferred_remote": "dietpi.local",
+  "port": 5000
+}
