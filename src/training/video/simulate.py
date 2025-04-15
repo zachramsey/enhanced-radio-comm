@@ -192,5 +192,5 @@ def simulate_transmission(loader: DataLoader, encode, decode, plot_dir: str):
             axs[i, 3].set_title("Bad Signal")
 
     fig.tight_layout()
-    plt.savefig(f"{plot_dir}/Export_Test_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
+    plt.savefig(f"{plot_dir}/Simulate_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
     plt.close()

@@ -93,7 +93,7 @@ class VideoModelTrainer:
         self.model = VideoModel(ch_network, ch_compress).to(device)
         # self.model = torch.compile(self.model, backend="cudagraphs")
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
-        self.mix_crit = MS_SSIM_L1_Loss(alpha=0.85)
+        # self.mix_crit = MS_SSIM_L1_Loss(alpha=0.85)
 
         self.scaler = torch.amp.GradScaler(enabled=DEVICE=="cuda")
 
@@ -119,13 +119,18 @@ class VideoModelTrainer:
             self.model.image_bottleneck.update()
 
             self.optimizer.zero_grad()
-            with torch.amp.autocast(device_type=self.device, dtype=torch.float16, enabled=DEVICE=="cuda"):
-                reconstruction, y_likelihoods, z_likelihoods = self.model(data)
-                rate_loss, distortion_loss, loss = self.rate_distortion_loss(reconstruction, y_likelihoods, z_likelihoods, data)
-            self.scaler.scale(loss).backward()
+            reconstruction, y_likelihoods, z_likelihoods = self.model(data)
+            rate_loss, distortion_loss, loss = self.rate_distortion_loss(reconstruction, y_likelihoods, z_likelihoods, data)
+            loss.backward()
             # torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
-            self.scaler.step(self.optimizer)
-            self.scaler.update()
+            self.optimizer.step()
+            # with torch.amp.autocast(device_type=self.device, dtype=torch.float16, enabled=DEVICE=="cuda"):
+            #     reconstruction, y_likelihoods, z_likelihoods = self.model(data)
+            #     rate_loss, distortion_loss, loss = self.rate_distortion_loss(reconstruction, y_likelihoods, z_likelihoods, data)
+            # self.scaler.scale(loss).backward()
+            # torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
+            # self.scaler.step(self.optimizer)
+            # self.scaler.update()
 
             rate_losses.append(rate_loss.item())
             distortion_losses.append(distortion_loss.item())
@@ -227,13 +232,15 @@ class VideoModelTrainer:
             
 
     def rate_distortion_loss(self, reconstruction: torch.Tensor, latent_likelihoods: torch.Tensor, hyper_latent_likelihoods: torch.Tensor, original: torch.Tensor):
+        reconstruction = reconstruction.permute(0, 3, 1, 2) / 255.0
+        original = original.permute(0, 3, 1, 2) / 255.0
         num_images, _, height, width = original.shape
         num_pixels = num_images * height * width
         bits = (latent_likelihoods.log().sum() + hyper_latent_likelihoods.log().sum()) / -math.log(2)
-        bpp_loss = bits / num_pixels / 255**2
+        bpp_loss = bits / num_pixels
         # distortion_loss = self.mix_crit(reconstruction, original)
-        distortion_loss = torch.nn.functional.mse_loss(reconstruction, original) / 255**2
-        combined_loss = self.distortion_lambda * 255 ** 2 * distortion_loss + bpp_loss
+        distortion_loss = torch.nn.functional.mse_loss(reconstruction, original)
+        combined_loss = self.distortion_lambda * 255**2 * distortion_loss + bpp_loss
         return bpp_loss, distortion_loss, combined_loss
 
 

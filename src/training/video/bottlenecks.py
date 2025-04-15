@@ -186,23 +186,26 @@ class EntropyBottleneck(nn.Module):
         inv_perm = perm
         
         # Compress, add noise, and decompress
-        with torch.no_grad():
-            strings = self.compress(x)
-            strings = simulate_errors(strings)
-            _x = self.decompress(strings, x.size()[-2:])
-        x = x + (_x - x).detach()
+        # with torch.no_grad():
+        #     strings = self.compress(x)
+        #     strings = simulate_errors(strings)
+        #     _x = self.decompress(strings, x.size()[-2:])
+        # x = x + (_x - x).detach()
 
         x = x.permute(*perm).contiguous()
         shape = x.size()
         x = x.reshape(x.size(0), 1, -1)
 
-        # Compute likelihood
-        lower = self._logits_cumulative(x - 0.5, False)
-        upper = self._logits_cumulative(x + 0.5, False)
-        likelihood = torch.sigmoid(upper) - torch.sigmoid(lower)
+        x = x + torch.empty_like(x).uniform_(-0.5, 0.5)
 
-        if self.use_likelihood_bound:
-            likelihood = self.likelihood_lower_bound(likelihood)
+        # Compute likelihood
+        if not torch.jit.is_scripting():
+            lower = self._logits_cumulative(x - 0.5, False)
+            upper = self._logits_cumulative(x + 0.5, False)
+            likelihood = torch.sigmoid(upper) - torch.sigmoid(lower)
+
+            if self.use_likelihood_bound:
+                likelihood = self.likelihood_lower_bound(likelihood)
 
         # Convert to input shape
         x = x.reshape(shape).permute(*inv_perm).contiguous()
@@ -212,6 +215,7 @@ class EntropyBottleneck(nn.Module):
         
 
     @staticmethod
+    @torch.jit.ignore
     def _build_indexes(size):
         N, C = size[:2]
         # Create the shape directly using Python list
@@ -363,12 +367,14 @@ class GaussianConditional(nn.Module):
     
     def forward(self, x: Tensor, scales: Tensor, means: Tensor) -> Tuple[Tensor, Tensor]:
         # Add noise
-        indexes = self.build_indexes(scales)
-        with torch.no_grad():
-            strings = self.compress(x, indexes, means)
-            strings = simulate_errors(strings)
-            _x = self.decompress(strings, indexes, means=means)
-        x = x + (_x - x).detach()
+        # indexes = self.build_indexes(scales)
+        # with torch.no_grad():
+        #     strings = self.compress(x, indexes, means)
+        #     strings = simulate_errors(strings)
+        #     _x = self.decompress(strings, indexes, means=means)
+        # x = x + (_x - x).detach()
+
+        x = x + torch.empty_like(x).uniform_(-0.5, 0.5)
 
         # Compute likelihood
         values = x - means
