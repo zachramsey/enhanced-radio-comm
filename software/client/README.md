@@ -31,9 +31,23 @@ The application will automatically install required dependencies when launched. 
 
 2. The web interface will automatically open in your default browser.
 
-3. Select a discovered remote device from the list.
+3. The application will automatically discover and connect to the Orange Pi at `dietpi.local:8080`.
 
-4. Click "Start Stream" to begin viewing the video feed.
+4. If the automatic connection doesn't work, you can manually select the Orange Pi from the device list.
+
+5. Click "Start Stream" to begin viewing the video feed.
+
+### Orange Pi Configuration
+
+The application is pre-configured to connect to an Orange Pi running MJPG-Streamer at:
+```
+http://dietpi.local:8080/?action=stream
+```
+
+Make sure your Orange Pi is:
+- Connected to the same network as your PC
+- Running MJPG-Streamer on port 8080
+- Configured with the hostname 'dietpi'
 
 ## Configuration
 
