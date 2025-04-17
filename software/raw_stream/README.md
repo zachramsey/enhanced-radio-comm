@@ -61,7 +61,7 @@ chmod +x compile.sh
 ./raw_video_server
 
 # With custom parameters
-./raw_video_server --camera 1 --width 1280 --height 720 --fps 15
+./raw_video_server --camera 1 --fps 30
 ```
 
 ### Control Device (Your Laptop)
@@ -93,30 +93,12 @@ chmod +x compile.sh
 
 ```bash
 # Replace with your Orange Pi's IP address or hostname
-./raw_video_client --ip dietpi.local
+./raw_video_client --ip xxx.xxx.x.xx
 ```
 
 #### Option 2: Web-Based Client
 
-1. **Install Python dependencies**:
-
-```bash
-pip install flask opencv-python numpy
-```
-
-2. **Run the web client**:
-
-```bash
-cd software/raw_stream/control
-python web_client.py --ip dietpi.local
-```
-
-3. **Access the web interface**:
-
-Open your browser and navigate to:
-```
-http://localhost:5000
-```
+still under development
 
 ## Usage Notes
 
@@ -129,14 +111,8 @@ On the Orange Pi, you may need to specify the correct camera device:
 ls -l /dev/video*
 
 # Run with specific camera
-./raw_video_server --camera 1  # Use /dev/video1
+./raw_video_server --camera 1 --fps 30 # Use /dev/video1
 ```
-
-### Performance Considerations
-
-- Raw BGR streaming uses significant bandwidth (approximately 27 MB/s for 640x480 at 30 FPS)
-- For better performance, consider reducing resolution or frame rate
-- The web client converts the raw frames to MJPEG for browser display, which adds some latency
 
 ### Troubleshooting
 
@@ -153,39 +129,3 @@ ls -l /dev/video*
    - Ensure OpenCV is properly installed: `pkg-config --modversion opencv4`
    - Check for missing dependencies: `pkg-config --libs opencv4`
 
-## Time-Lapse Functionality
-
-To implement time-lapse functionality, you can modify the server code to capture frames at specific intervals:
-
-```cpp
-// In the server code, replace the streaming loop with:
-int timelapseInterval = 5; // seconds between frames
-while (clientConnected) {
-    auto frameStart = std::chrono::steady_clock::now();
-    
-    // Capture frame
-    if (!cap.read(frame)) {
-        std::cerr << "Error: Could not read frame from camera" << std::endl;
-        break;
-    }
-    
-    // Send frame as before...
-    
-    // Wait for the next time-lapse frame
-    std::this_thread::sleep_for(std::chrono::seconds(timelapseInterval));
-}
-```
-
-Add a command-line parameter to enable time-lapse mode:
-
-```cpp
-// Add to the parameter parsing section:
-bool timelapseMode = false;
-int timelapseInterval = 5;
-
-// In the argument parsing loop:
-else if (arg == "--timelapse" && i + 1 < argc) {
-    timelapseMode = true;
-    timelapseInterval = std::stoi(argv[++i]);
-}
-```
