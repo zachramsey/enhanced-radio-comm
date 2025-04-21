@@ -28,10 +28,10 @@
 * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#include <Python.h>
 #include <ATen/Operators.h>
 #include <torch/all.h>
 #include <torch/library.h>
+#include <torch/custom_class.h>
 
 #include <algorithm>
 #include <cassert>
@@ -61,8 +61,6 @@
 #else
   #define Rans64Assert(x)
 #endif
-  
-namespace cpp_exts {
 
 // --------------------------------------------------------------------------
 // Precision and bypass parameters
@@ -416,41 +414,15 @@ at::Tensor RansDecoder::decode_with_indexes(const at::Tensor &encoded,
 }
 
 // --------------------------------------------------------------------------
-// Define a namespace for your operators (e.g., "rans_ops")
-TORCH_LIBRARY(cpp_exts, m) {
+// Define a namespace for operators
+TORCH_LIBRARY(my_rans, m) {
     // Register the RansEncoder class
     m.class_<RansEncoder>("RansEncoder")
-        // Register the constructor (__init__)
         .def(torch::init<>())
-        // Register the encode_with_indexes method
-        // Format: .def("python_method_name", &ClassName::MethodName)
         .def("encode_with_indexes", &RansEncoder::encode_with_indexes);
 
     // Register the RansDecoder class
     m.class_<RansDecoder>("RansDecoder")
-        // Register the constructor (__init__)
         .def(torch::init<>())
-        // Register the decode_with_indexes method
         .def("decode_with_indexes", &RansDecoder::decode_with_indexes);
-}
-
-} // namespace cpp_exts
-
-// --------------------------------------------------------------------------
-
-extern "C" {
-    /* Creates a dummy empty _C module that can be imported from Python.
-       The import from Python will load the .so consisting of this file in this
-       extension, so that the TORCH_LIBRARY static initializers below are run. */
-    PyObject* PyInit__C(void) {
-        static struct PyModuleDef module_def = {
-            PyModuleDef_HEAD_INIT,
-            "_C",   /* name of module */
-            NULL,   /* module documentation, may be NULL */
-            -1,     /* size of per-interpreter state of the module,
-                       or -1 if the module keeps state in global variables. */
-            NULL,   /* methods */
-        };
-        return PyModule_Create(&module_def);
-    }
 }

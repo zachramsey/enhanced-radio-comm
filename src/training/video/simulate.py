@@ -1,4 +1,3 @@
-
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
@@ -79,10 +78,9 @@ def simulate_errors(data, p=None, r=None, k=1, h=0):
 
     # Pack error masks into bytes
     masks = [np.packbits(e_i) for e_i in e]
-    # Get data from the byte streams
-    datas = [np.frombuffer(d_i, dtype=np.uint8) for d_i in data]
+
     # XOR the error signal with the data
-    outs = [np.bitwise_xor(d_i, m_i).tobytes() for d_i, m_i in zip(datas, masks)]
+    outs = [np.bitwise_xor(d_i, m_i) for d_i, m_i in zip(data, masks)]
     
     return outs
 
@@ -125,11 +123,92 @@ def simulate_impairments(data: bytes, snr_db: float = 10, interference_prob: flo
     bits = torch.sigmoid(bits).round().to(torch.uint8)
     
     # Move back to CPU, convert to bytes
-    bits = np.packbits(bits.detach().cpu().numpy()).tobytes()
-    return bits
+    return [np.packbits(bits.detach().cpu().numpy()).tobytes()]
 
 
-def simulate_transmission(loader: DataLoader, encode, decode, plot_dir: str):
+def add_uniform_noise(data: bytes, noise_level: float = 0.1) -> bytes:
+    """
+    Add uniform noise to a byte stream.
+    
+    Parameters
+    ----------
+    data : bytes
+        The input byte stream.
+    noise_level : float
+        The level of uniform noise to add.
+    
+    Returns
+    -------
+    bytes
+        The noisy byte stream.
+    """
+    # Convert bytes to numpy array
+    arr = np.frombuffer(data, dtype=np.uint8)
+    
+    # Add uniform noise
+    noise_level = np.round(noise_level * 255)
+    noise = np.random.randint(-1 * noise_level, noise_level + 1, size=arr.shape).astype(np.int16)
+    noisy_arr = np.clip(arr + noise, 0, 255).astype(np.uint8)
+    
+    # Convert back to bytes
+    return noisy_arr.tobytes()
+
+
+def add_gaussian_noise(data: bytes, scale: float = 1) -> bytes:
+    """
+    Add Gaussian noise to a byte stream.
+    
+    Parameters
+    ----------
+    data : bytes
+        The input byte stream.
+    scale : float
+        The scale of the Gaussian noise to add.
+    
+    Returns
+    -------
+    bytes
+        The noisy byte stream.
+    """
+    # Convert bytes to numpy array
+    arr = np.frombuffer(data, dtype=np.uint8)
+    
+    # Add Gaussian noise
+    noise = np.random.normal(0, np.round(scale * 25.5), size=arr.shape).astype(np.int16)
+    noisy_arr = np.clip(arr + noise, 0, 255).astype(np.uint8)
+    
+    # Convert back to bytes
+    return noisy_arr.tobytes()
+
+
+def add_impulse_noise(data: bytes, impulse_prob: float = 0.1) -> bytes:
+    """
+    Add impulse noise to a byte stream.
+    
+    Parameters
+    ----------
+    data : bytes
+        The input byte stream.
+    impulse_prob : float
+        The probability of an impulse noise event.
+    
+    Returns
+    -------
+    bytes
+        The noisy byte stream.
+    """
+    # Convert bytes to numpy array
+    arr = np.frombuffer(data, dtype=np.uint8)
+    
+    # Add impulse noise
+    mask = np.random.rand(*arr.shape) < impulse_prob
+    arr[mask] = np.random.randint(0, 256, size=np.sum(mask)).astype(np.uint8)
+    
+    # Convert back to bytes
+    return arr.tobytes()
+
+
+def simulate_transmission(loader: DataLoader, encode, decode, plot_dir: str, type: str|None = None):
     '''
     Simulate the transmission of data through a noisy channel and visualize the results.
 
@@ -143,6 +222,13 @@ def simulate_transmission(loader: DataLoader, encode, decode, plot_dir: str):
         Callback function to decode the 'transmitted' data.
     plot_dir : str
         Directory to save the plots.
+    type : str
+        Type of simulation to perform. Options:
+            - "errors": Simulate errors using Gilbert-Elliot model.
+            - "impairments": Simulate impairments using realistic models.
+            - "uniform_noise": Add uniform noise to the data.
+            - "gaussian_noise": Add Gaussian noise to the data.
+            - "impulse_noise": Add impulse noise to the data.
     '''
     fig, axs = plt.subplots(len(loader), 4)
 
@@ -152,14 +238,60 @@ def simulate_transmission(loader: DataLoader, encode, decode, plot_dir: str):
         z_string, y_string = encode(data)
 
         # Simulate transmission errors
-        z_string_good = simulate_errors([z_string], p=0.13, r=0.84)
-        y_string_good = simulate_errors([y_string], p=0.13, r=0.84)
+        if type is None:
+            z_string_good = [z_string]
+            y_string_good = [y_string]
 
-        z_string_mid = simulate_errors([z_string], p=0.29, r=0.78)
-        y_string_mid = simulate_errors([y_string], p=0.29, r=0.78)
+            z_string_mid = [z_string]
+            y_string_mid = [y_string]
 
-        z_string_bad = simulate_errors([z_string], p=0.92, r=0.08)
-        y_string_bad = simulate_errors([y_string], p=0.92, r=0.08)
+            z_string_bad = [z_string]
+            y_string_bad = [y_string]
+        elif type == "errors":
+            z_string_good = simulate_errors([z_string], p=0.13, r=0.84)
+            y_string_good = simulate_errors([y_string], p=0.13, r=0.84)
+
+            z_string_mid = simulate_errors([z_string], p=0.29, r=0.78)
+            y_string_mid = simulate_errors([y_string], p=0.29, r=0.78)
+
+            z_string_bad = simulate_errors([z_string], p=0.92, r=0.08)
+            y_string_bad = simulate_errors([y_string], p=0.92, r=0.08)
+        elif type == "impairments":
+            z_string_good = simulate_impairments(z_string, snr_db=20, interference_prob=0.1, flip_prob=0.01)
+            y_string_good = simulate_impairments(y_string, snr_db=20, interference_prob=0.1, flip_prob=0.01)
+
+            z_string_mid = simulate_impairments(z_string, snr_db=5, interference_prob=0.25, flip_prob=0.025)
+            y_string_mid = simulate_impairments(y_string, snr_db=5, interference_prob=0.25, flip_prob=0.025)
+
+            z_string_bad = simulate_impairments(z_string, snr_db=0, interference_prob=0.4, flip_prob=0.04)
+            y_string_bad = simulate_impairments(y_string, snr_db=0, interference_prob=0.4, flip_prob=0.04)
+        elif type == "uniform_noise":
+            z_string_good = add_uniform_noise(z_string, noise_level=0.1)
+            y_string_good = add_uniform_noise(y_string, noise_level=0.1)
+
+            z_string_mid = add_uniform_noise(z_string, noise_level=0.25)
+            y_string_mid = add_uniform_noise(y_string, noise_level=0.25)
+
+            z_string_bad = add_uniform_noise(z_string, noise_level=0.4)
+            y_string_bad = add_uniform_noise(y_string, noise_level=0.4)
+        elif type == "gaussian_noise":
+            z_string_good = add_gaussian_noise(z_string, scale=1)
+            y_string_good = add_gaussian_noise(y_string, scale=1)
+
+            z_string_mid = add_gaussian_noise(z_string, scale=25)
+            y_string_mid = add_gaussian_noise(y_string, scale=25)
+
+            z_string_bad = add_gaussian_noise(z_string, scale=4)
+            y_string_bad = add_gaussian_noise(y_string, scale=4)
+        elif type == "impulse_noise":
+            z_string_good = add_impulse_noise(z_string, impulse_prob=0.1)
+            y_string_good = add_impulse_noise(y_string, impulse_prob=0.1)
+
+            z_string_mid = add_impulse_noise(z_string, impulse_prob=0.25)
+            y_string_mid = add_impulse_noise(y_string, impulse_prob=0.25)
+
+            z_string_bad = add_impulse_noise(z_string, impulse_prob=0.4)
+            y_string_bad = add_impulse_noise(y_string, impulse_prob=0.4)
 
         # Decode the received data
         dec_good = decode(z_string_good, y_string_good)

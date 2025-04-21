@@ -118,10 +118,10 @@ class VideoModel(nn.Module):
         hyper_params = self.hyper_synthesis(z_hat)
 
         # Get the hyper-parameters (mean & std of a Gaussian distribution) from the hyper-prior
-        sigma_hat, means_hat = torch.chunk(self.entropy_parameters(hyper_params), 2, 1)
+        # sigma_hat, means_hat = torch.chunk(self.entropy_parameters(hyper_params), 2, 1)
 
         # Add noise to the latent image (for training)
-        y_hat, y_likelihoods = self.image_bottleneck(y, sigma_hat, means=means_hat)
+        y_hat, y_likelihoods = self.image_bottleneck(y, hyper_params)#sigma_hat, means=means_hat)
         # print("\n----------------\ny_hat:\n", y_hat[0], "\ny_likelihoods:\n", y_likelihoods[0])
 
         # Decode image from decompressed latent image

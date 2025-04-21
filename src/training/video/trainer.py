@@ -2,6 +2,7 @@ import math
 import torch
 from torch.utils.data import DataLoader
 from torcheval.metrics.image.psnr import PeakSignalNoiseRatio
+from torcheval.metrics.image.ssim import StructuralSimilarity
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -91,7 +92,16 @@ class VideoModelTrainer:
         self.model_path = model_path
 
         self.model = VideoModel(ch_network, ch_compress).to(device)
-        # self.model = torch.compile(self.model, backend="cudagraphs")
+
+        # Dynamically choose compiler backend if available
+        if torch.onnx.is_onnxrt_backend_supported():
+            self.model = torch.compile(self.model, backend="onnxrt")
+        elif torch.cuda.is_available():
+            if torch.cuda.get_device_capability()[0] > 6:
+                self.model = torch.compile(self.model, backend="inductor", mode="reduce-overhead")
+            else:
+                self.model = torch.compile(self.model, backend="cudagraphs")
+
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
         # self.mix_crit = MS_SSIM_L1_Loss(alpha=0.85)
 
@@ -122,15 +132,8 @@ class VideoModelTrainer:
             reconstruction, y_likelihoods, z_likelihoods = self.model(data)
             rate_loss, distortion_loss, loss = self.rate_distortion_loss(reconstruction, y_likelihoods, z_likelihoods, data)
             loss.backward()
-            # torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
             self.optimizer.step()
-            # with torch.amp.autocast(device_type=self.device, dtype=torch.float16, enabled=DEVICE=="cuda"):
-            #     reconstruction, y_likelihoods, z_likelihoods = self.model(data)
-            #     rate_loss, distortion_loss, loss = self.rate_distortion_loss(reconstruction, y_likelihoods, z_likelihoods, data)
-            # self.scaler.scale(loss).backward()
-            # torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
-            # self.scaler.step(self.optimizer)
-            # self.scaler.update()
 
             rate_losses.append(rate_loss.item())
             distortion_losses.append(distortion_loss.item())
@@ -165,6 +168,7 @@ class VideoModelTrainer:
         total_distortion_loss = 0
         total_rate_loss = 0
         total_psnr = 0
+        # total_ssim = 0
 
         len_dl = len(self.data.val_dl)
         len_data = len(self.data.val_dl.dataset)
@@ -174,12 +178,16 @@ class VideoModelTrainer:
                 data = data.to(self.device)
 
                 reconstruction, y_likelihoods, z_likelihoods = self.model(data)
-                rate_loss, distortion_loss, loss = self.rate_distortion_loss(reconstruction, y_likelihoods, z_likelihoods, data)
 
+                rate_loss, distortion_loss, loss = self.rate_distortion_loss(reconstruction, y_likelihoods, z_likelihoods, data)
                 total_loss += loss.item()
                 total_distortion_loss += distortion_loss.item()
                 total_rate_loss += rate_loss.item()
-                total_psnr += PeakSignalNoiseRatio().update(data, reconstruction).compute().item()
+
+                _reconstruction = reconstruction.permute(0, 3, 1, 2) / 255.0
+                _data = data.permute(0, 3, 1, 2) / 255.0
+                total_psnr += PeakSignalNoiseRatio().update(_data, _reconstruction).compute().item()
+                # total_ssim += StructuralSimilarity().update(_data, _reconstruction).compute().item()
 
                 msg = (f"Eval Step [{i*self.batch_size}/{len_data}] | "
                        f"Rate Loss: {rate_loss.item():.6f} | "
@@ -194,6 +202,7 @@ class VideoModelTrainer:
               f"Compression: {avg_rate_loss:.6f} | "
               f"Distortion: {avg_distortion_loss:.6f} | "
               f"Total Loss: {avg_loss:.6f} | "
+            #   f"SSIM: {total_ssim / len_dl:.6f} | "
               f"PSNR: {total_psnr / len_dl:.6f}\n\n")
         self.model.train()
         return avg_loss, avg_rate_loss, avg_distortion_loss
@@ -216,19 +225,7 @@ class VideoModelTrainer:
 
         # Simulate transmission with the original models
         with torch.no_grad():
-            simulate_transmission(loader, encoder.forward, decoder.forward, self.plot_dir)
-        
-        # Simulate transmission with the models lowered to XNNPACK backend
-        # xnnpack_model = XNNPackModel(
-        #     self.ch_network,
-        #     self.ch_compress,
-        #     encoder_path,
-        #     decoder_path,
-        #     self.export_dir,
-        #     self.plot_dir,
-        #     True
-        # )
-        # xnnpack_model.test_export(loader)
+            simulate_transmission(loader, encoder, decoder, self.plot_dir, type="errors")
             
 
     def rate_distortion_loss(self, reconstruction: torch.Tensor, latent_likelihoods: torch.Tensor, hyper_latent_likelihoods: torch.Tensor, original: torch.Tensor):

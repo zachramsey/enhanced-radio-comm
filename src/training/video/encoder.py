@@ -135,12 +135,12 @@ class VideoEncoder(VideoModel):
         hyper_params = self.hyper_synthesis(z_hat)
 
         # Get the hyper-parameters (mean & std of a Gaussian distribution) from the hyper-prior
-        sigma_hat, means_hat = self.entropy_parameters(hyper_params).chunk(2, 1)
+        # sigma_hat, means_hat = self.entropy_parameters(hyper_params).chunk(2, 1)
         
         # Build the scale indexes for quantization
-        indexes = self.image_bottleneck.build_indexes(sigma_hat)
+        indexes = self.image_bottleneck.build_indexes(hyper_params)#sigma_hat)
 
         # Quantize the latent image with the scale indexes and hyper-prior means
-        y_string = self.image_bottleneck.compress(y, indexes, means_hat)[0]
+        y_string = self.image_bottleneck.compress(y, indexes)[0]#, means_hat)[0]
         
         return z_string, y_string
