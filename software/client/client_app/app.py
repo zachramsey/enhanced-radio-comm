@@ -46,6 +46,20 @@ class RemoteDeviceDiscovery:
         self.devices = {}
         self.lock = threading.Lock()
 
+        # Add the known Orange Pi device
+        self.add_known_device()
+
+    def add_known_device(self):
+        """Add the known Orange Pi device"""
+        with self.lock:
+            self.devices["orangepi"] = {
+                "name": "Orange Pi",
+                "address": "dietpi.local",
+                "port": 8080,
+                "properties": {"type": "mjpeg-streamer"}
+            }
+            logger.info(f"Added known device: {self.devices['orangepi']}")
+
     def start_discovery(self):
         """Start discovering remote devices"""
         logger.info("Starting remote device discovery")
@@ -77,7 +91,7 @@ class RemoteDeviceDiscovery:
     def remove_service(self, zc, type, name):
         """Called when a service is removed"""
         with self.lock:
-            if name in self.devices:
+            if name in self.devices and name != "orangepi":  # Don't remove the known device
                 logger.info(f"Remote device lost: {name}")
                 del self.devices[name]
 
