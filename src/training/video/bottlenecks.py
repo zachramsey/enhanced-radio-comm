@@ -46,8 +46,6 @@ except Exception as e:
     print("Failed to load C++ library:", e)
     print("Ensure that library is compiled and the path is correct.")
 
-from .simulate import simulate_errors
-
 class EntropyBottleneck(nn.Module):
     _offset: Tensor
 
@@ -187,8 +185,37 @@ class EntropyBottleneck(nn.Module):
                     factor = factor.detach()
                 logits = logits + torch.tanh(factor) * torch.tanh(logits)
         return logits
+    
+    # @staticmethod
+    # def quantize(x: Tensor) -> Tensor:
+    #     # Quantize input from continuous range to discrete range [-128.0, 127.0]
+    #     x_abs = x.abs()
+    #     pos_mask = (x >= 0).float()
+    #     neg_mask = (x < 0).float()
+    #     scale = (
+    #         127.0 / (torch.amax(x_abs * pos_mask, dim=(1,2,3), keepdim=True) + 1e-12) * pos_mask +
+    #         128.0 / (torch.amax(x_abs * neg_mask, dim=(1,2,3), keepdim=True) + 1e-12) * neg_mask
+    #     )
+    #     return torch.round(x * scale)
+        
+    # @staticmethod
+    # def dequantize(x: Tensor) -> Tensor:
+    #     # Dequantize input range [-128.0, 127.0] to continuous range [-1.0, 1.0]
+    #     return x * ((x >= 0).float() / 127.0 + (x < 0).float() / 128.0)
 
-    def forward(self, x: Tensor) -> Tuple[Tensor, Tensor]:
+    @staticmethod
+    def quantize(x: Tensor) -> Tensor:
+        # Quantize positive continuous input to discrete range [0, 65535.0]
+        x_min = torch.amin(x, dim=(1,2,3), keepdim=True)
+        x_max = torch.amax(x, dim=(1,2,3), keepdim=True)
+        return torch.round((x - x_min) * 65535.0 / (x_max - x_min + 1e-12))
+    
+    @staticmethod
+    def dequantize(x: Tensor) -> Tensor:
+        # Dequantize discrete input range [0, 65535.0] to continuous range [0.0, 1.0]
+        return x / 65535.0
+
+    def forward(self, x: Tensor, noise_func = None, **kwargs) -> Tuple[Tensor, Tensor]:
 
         # x from B x C x ... to C x B x ...
         perm = torch.cat((
@@ -196,20 +223,15 @@ class EntropyBottleneck(nn.Module):
             torch.arange(2, x.ndim, dtype=torch.long, device=x.device),
         ))
         inv_perm = perm
-        
-        # Compress, add noise, and decompress
-        with torch.no_grad():
-            strings = self.compress(x)
-            strings = simulate_errors(strings)
-            _x = self.decompress(strings, x.size()[-2:])
-            # print("\n", x.min().item(), x.max().item(), "|", _x.min().item(), _x.max().item())
-        x = x + (_x - x).detach()
+
+        x = self.quantize(x)
+        if noise_func is not None:
+            x = x + (noise_func(x, **kwargs) - x).detach()
+        x = self.dequantize(x)
 
         x = x.permute(*perm).contiguous()
         shape = x.size()
         x = x.reshape(x.size(0), 1, -1)
-
-        # x = x + torch.empty_like(x).uniform_(-0.5, 0.5)
 
         # Compute likelihood
         if not torch.jit.is_scripting():
@@ -253,139 +275,66 @@ class EntropyBottleneck(nn.Module):
             self.quantiles[:, :, i] = q_i[:, :, 0]
 
     def compress(self, x):
-        if not torch.compiler.is_compiling():
-            # Ensure CDFs are computed and ready
-            assert self._quantized_cdf.numel() > 0, "Uninitialized CDFs. Run update() first"
-            assert self._cdf_length.numel() > 0, "Uninitialized CDF lengths. Run update() first"
-            assert self._offset.numel() > 0, "Uninitialized offsets. Run update() first"
-
         # Build indexes
         size = x.size()
-        view_dims = np.ones((len(size),), dtype=np.int64)
-        view_dims[1] = -1
-        indexes = torch.arange(size[1]).view(*view_dims)
-        indexes = indexes.int()
-        indexes = indexes.repeat(size[0], 1, *size[2:])
+        indexes = torch.arange(size[1]).view(1, -1, 1, 1).int()
+        indexes = indexes.repeat(size[0], 1, *size[2:]).cpu()
 
         # Compute medians
         medians = self.quantiles[:, :, 1:2].detach()
-        spatial_dims = len(x.size()) - 2
+        spatial_dims = len(size) - 2
         medians = medians.reshape(-1, *([1] * spatial_dims)) if spatial_dims > 0 else medians.reshape(-1)
-        medians = medians.expand(x.size(0), *([-1] * (spatial_dims + 1)))
-        symbols = torch.round(x.clone() - medians).int()    # Quantize input to integer symbols
+        medians = medians.expand(size[0], *([-1] * (spatial_dims + 1)))
+        symbols = torch.round(x - medians).int().cpu()    # Quantize input to integer symbols
+
+        cdf = self._quantized_cdf.cpu()
+        cdf_length = self._cdf_length.cpu()
+        offset = self._offset.cpu()
 
         strings = []                                        # List to hold compressed strings
         for i in range(symbols.size(0)):
             symbols_flat = symbols[i].reshape(-1)
             indexes_flat = indexes[i].reshape(-1)
-
-            if not torch.compiler.is_compiling():
-                # Ensure input tensors are valid
-                cdf_num_tables, cdf_max_len = self._quantized_cdf.shape[0], self._quantized_cdf.shape[1]
-                
-                assert symbols_flat.dtype == torch.int32, f"Incorrect symbols dtype: {symbols_flat.dtype}"
-                assert indexes_flat.dtype == torch.int32, f"Incorrect indexes dtype: {indexes_flat.dtype}"
-                assert self._quantized_cdf.dtype == torch.int32, f"Incorrect cdfs dtype: {self._quantized_cdf.dtype}"
-                assert self._cdf_length.dtype == torch.int32, f"Incorrect cdf_lengths dtype: {self._cdf_length.dtype}"
-                assert self._offset.dtype == torch.int32, f"Incorrect offsets dtype: {self._offset.dtype}"
-
-                assert symbols_flat.ndim == 1, f"symbols must be 1D, got {symbols_flat.ndim}"
-                assert indexes_flat.ndim == 1, f"indexes must be 1D, got {indexes_flat.ndim}"
-                assert self._quantized_cdf.ndim == 2, f"cdfs must be 2D, got {self._quantized_cdf.ndim}"
-                assert self._cdf_length.ndim == 1, f"cdf_lengths must be 1D, got {self._cdf_length.ndim}"
-                assert self._offset.ndim == 1, f"offsets must be 1D, got {self._offset.ndim}"
-
-                assert len(symbols_flat) == len(indexes_flat), f"Mismatch symbols ({len(symbols_flat)}) vs indexes ({len(indexes_flat)}) length"
-                assert cdf_num_tables == len(self._cdf_length), f"Mismatch cdfs rows ({cdf_num_tables}) vs cdf_lengths ({len(self._cdf_length)})"
-                assert cdf_num_tables == len(self._offset), f"Mismatch cdfs rows ({cdf_num_tables}) vs offsets ({len(self._offset)})"
-
-                if indexes_flat.numel() > 0: # Avoid min/max on empty tensor
-                    assert indexes_flat.min() >= 0, f"Min index out of bounds: {indexes_flat.min()}"
-                    assert indexes_flat.max() < cdf_num_tables, f"Max index out of bounds: {indexes_flat.max()} >= {cdf_num_tables}"
-
-                assert self._cdf_length.min() >= 2, f"Min cdf_length invalid: {self._cdf_length.min()}" # Need at least [0, scale]
-                assert self._cdf_length.max() <= cdf_max_len, f"Max cdf_length ({self._cdf_length.max()}) exceeds cdf table columns ({cdf_max_len})"
-
             rv = self._encoder.encode_with_indexes(
-                symbols_flat.cpu(),
-                indexes_flat.cpu(),
-                self._quantized_cdf.cpu(),
-                self._cdf_length.cpu(),
-                self._offset.cpu()
+                symbols_flat,
+                indexes_flat,
+                cdf,
+                cdf_length,
+                offset
             )
             strings.append(rv)
         return strings
 
     def decompress(self, strings, size):
-        if not torch.compiler.is_compiling():
-            # Ensure CDFs are computed and ready
-            assert self._quantized_cdf.numel() > 0, "CDFs not computed. Call update() or load state."
-            assert self._cdf_length.numel() > 0, "CDF lengths not computed. Call update() or load state."
-            assert self._offset.numel() > 0, "Offsets not computed. Call update() or load state."
+        strings = [s.cpu() for s in strings]  # Ensure all strings are on CPU
 
         # Build indexes
         output_size = (len(strings), self._quantized_cdf.size(0), *size)
-        view_dims = np.ones((len(output_size),), dtype=np.int64)
-        view_dims[1] = -1
-        indexes = torch.arange(output_size[1]).view(*view_dims)
-        indexes = indexes.int()
-        indexes = indexes.repeat(output_size[0], 1, *output_size[2:])
-        indexes = indexes.to(self._quantized_cdf.device)
+        indexes = torch.arange(output_size[1]).view(1, -1, 1, 1).int()
+        indexes = indexes.repeat(output_size[0], 1, *output_size[2:]).cpu()
 
         # Compute medians
         quantiles = self.quantiles[:, :, 1:2].detach()
         medians = quantiles.reshape(-1, *([1] * len(size))) if len(size) > 0 else quantiles.reshape(-1)
         medians = medians.expand(len(strings), *([-1] * (len(size) + 1)))
 
+        cdf = self._quantized_cdf.cpu()
+        cdf_length = self._cdf_length.cpu()
+        offset = self._offset.cpu()
+
         outputs = self._quantized_cdf.new_empty(indexes.size())
         for i, s in enumerate(strings):
             # Prepare flattened inputs for the current batch element
             indexes_flat = indexes[i].reshape(-1)
-
-            if not torch.compiler.is_compiling():
-                # Ensure input tensors are valid
-                cdf_num_tables, cdf_max_len = self._quantized_cdf.shape[0], self._quantized_cdf.shape[1]
-
-                assert isinstance(s, torch.Tensor), f"Input string element {i} is not a Tensor"
-                assert s.dtype == torch.uint8, f"Incorrect encoded string dtype: {s.dtype}"
-                assert indexes_flat.dtype == torch.int32, f"Incorrect indexes dtype: {indexes_flat.dtype}"
-                assert self._quantized_cdf.dtype == torch.int32, f"Incorrect cdf dtype: {self._quantized_cdf.dtype}"
-                assert self._cdf_length.dtype == torch.int32, f"Incorrect cdf_lengths dtype: {self._cdf_length.dtype}"
-                assert self._offset.dtype == torch.int32, f"Incorrect offsets dtype: {self._offset.dtype}"
-
-                assert s.ndim == 1, f"encoded string must be 1D, got {s.ndim}"
-                assert indexes_flat.ndim == 1, f"indexes must be 1D, got {indexes_flat.ndim}"
-                assert self._quantized_cdf.ndim == 2, f"cdf must be 2D, got {self._quantized_cdf.ndim}"
-                assert self._cdf_length.ndim == 1, f"cdf_lengths must be 1D, got {self._cdf_length.ndim}"
-                assert self._offset.ndim == 1, f"offsets must be 1D, got {self._offset.ndim}"
-
-                assert s.is_contiguous(), "Encoded string tensor 's' must be contiguous"
-                assert self._quantized_cdf.shape[0] == len(self._cdf_length), f"Mismatch cdf rows ({cdf_num_tables}) vs cdf_lengths ({len(self._cdf_length)})"
-                assert self._quantized_cdf.shape[0] == len(self._offset), f"Mismatch cdf rows ({cdf_num_tables}) vs offsets ({len(self._offset)})"
-
-                if indexes_flat.numel() > 0: # Avoid min/max on empty tensor
-                    assert indexes_flat.min() >= 0, f"Min index out of bounds: {indexes_flat.min()}"
-                    assert indexes_flat.max() < cdf_num_tables, f"Max index out of bounds: {indexes_flat.max()} >= {cdf_num_tables}"
-
-                assert self._cdf_length.min() >= 2, f"Min cdf_length invalid: {self._cdf_length.min()}"
-                assert self._cdf_length.max() <= cdf_max_len, f"Max cdf_length ({self._cdf_length.max()}) exceeds cdf table columns ({cdf_max_len})"
-
             values = self._decoder.decode_with_indexes(
-                s.cpu(),
-                indexes_flat.cpu(),
-                self._quantized_cdf.cpu(),
-                self._cdf_length.cpu(),
-                self._offset.cpu()
+                s,
+                indexes_flat,
+                cdf,
+                cdf_length,
+                offset
             )
-
-            if not torch.compiler.is_compiling():
-                # Check if decoder output shape matches index shape
-                assert values.shape == indexes_flat.shape, f"Decoder output shape {values.shape} != index shape {indexes_flat.shape}"
-            outputs[i] = values.reshape(outputs[i].size())
-        
+            outputs[i] = values.reshape(outputs[i].size()).to(outputs.dtype)
         outputs = outputs.to(medians.dtype) + medians
-        outputs = torch.clamp(outputs, min=-10.0, max=10.0)
-
         return outputs
 
 
@@ -463,20 +412,23 @@ class GaussianConditional(nn.Module):
         self._offset = -pmf_center
         self._cdf_length = pmf_length + 2
 
+    @staticmethod
+    def quantize(x: Tensor) -> Tensor:
+        # Quantize positive continuous input to discrete range [0, 65535.0]
+        x_min = torch.amin(x, dim=(1,2,3), keepdim=True)
+        x_max = torch.amax(x, dim=(1,2,3), keepdim=True)
+        return torch.round((x - x_min) * 65535.0 / (x_max - x_min + 1e-12))
     
-    def forward(self, x: Tensor, scales: Tensor, means: Optional[Tensor] = None) -> Tuple[Tensor, Tensor]:
-        # Build indexes
-        indexes = self.build_indexes(scales)
-        
-        # Compress, add errors, and decompress
-        with torch.no_grad():
-            strings = self.compress(x, indexes, means)
-            strings = simulate_errors(strings)
-            _x = self.decompress(strings, indexes, means=means)
-            # print(x.min().item(), x.max().item(), "|", _x.min().item(), _x.max().item(), "\n")
-        x = x + (_x - x).detach()
-
-        # x = x + torch.empty_like(x).uniform_(-0.5, 0.5)
+    @staticmethod
+    def dequantize(x: Tensor) -> Tensor:
+        # Dequantize discrete input range [0, 65535.0] to continuous range [0.0, 1.0]
+        return x / 65535.0
+    
+    def forward(self, x: Tensor, scales: Tensor, means: Optional[Tensor] = None, noise_func = None, **kwargs) -> Tuple[Tensor, Tensor]:
+        x = self.quantize(x)
+        if noise_func is not None:
+            x = x + (noise_func(x, **kwargs) - x).detach()
+        x = self.dequantize(x)
 
         # Compute likelihood
         values = x if means is None else x - means
@@ -502,128 +454,46 @@ class GaussianConditional(nn.Module):
         return indexes
     
         
-    def compress(self, x, indexes, means=None):
-        if not torch.compiler.is_compiling():
-            # Ensure CDFs are computed and ready
-            assert self._quantized_cdf.numel() > 0, "CDFs not computed. Call update() first."
-            assert self._cdf_length.numel() > 0, "CDF lengths not computed. Call update() first."
-            assert self._offset.numel() > 0, "Offsets not computed. Call update() first."
-            
-        x = x.clone()
-        x = x if means is None else x - means
-        symbols = torch.round(x).int()
+    def compress(self, x, indexes, means=None):   
+        if means is not None: x -= means
+        symbols = torch.round(x).int().cpu()
+        indexes = indexes.cpu()
+        cdf = self._quantized_cdf.cpu()
+        cdf_length = self._cdf_length.cpu()
+        offset = self._offset.cpu()
 
         strings = []
         for i in range(symbols.size(0)):
             # Prepare flattened inputs for the current batch element
             symbols_flat = symbols[i].reshape(-1)
             indexes_flat = indexes[i].reshape(-1)
-
-            if not torch.compiler.is_compiling():
-                # Ensure input tensors are valid
-                cdf_num_tables, cdf_max_len = self._quantized_cdf.shape[0], self._quantized_cdf.shape[1]
-                
-                assert symbols_flat.dtype == torch.int32, f"Incorrect symbols dtype: {symbols_flat.dtype}"
-                assert indexes_flat.dtype == torch.int32, f"Incorrect indexes dtype: {indexes_flat.dtype}"
-                assert self._quantized_cdf.dtype == torch.int32, f"Incorrect cdfs dtype: {self._quantized_cdf.dtype}"
-                assert self._cdf_length.dtype == torch.int32, f"Incorrect cdf_lengths dtype: {self._cdf_length.dtype}"
-                assert self._offset.dtype == torch.int32, f"Incorrect offsets dtype: {self._offset.dtype}"
-
-                assert symbols_flat.ndim == 1, f"symbols must be 1D, got {symbols_flat.ndim}"
-                assert indexes_flat.ndim == 1, f"indexes must be 1D, got {indexes_flat.ndim}"
-                assert self._quantized_cdf.ndim == 2, f"cdfs must be 2D, got {self._quantized_cdf.ndim}"
-                assert self._cdf_length.ndim == 1, f"cdf_lengths must be 1D, got {self._cdf_length.ndim}"
-                assert self._offset.ndim == 1, f"offsets must be 1D, got {self._offset.ndim}"
-
-                assert len(symbols_flat) == len(indexes_flat), f"Mismatch symbols ({len(symbols_flat)}) vs indexes ({len(indexes_flat)}) length"
-                assert cdf_num_tables == len(self._cdf_length), f"Mismatch cdfs rows ({cdf_num_tables}) vs cdf_lengths ({len(self._cdf_length)})"
-                assert cdf_num_tables == len(self._offset), f"Mismatch cdfs rows ({cdf_num_tables}) vs offsets ({len(self._offset)})"
-
-                if indexes_flat.numel() > 0: # Avoid min/max on empty tensor
-                    assert indexes_flat.min() >= 0, f"Min index out of bounds: {indexes_flat.min()}"
-                    assert indexes_flat.max() < cdf_num_tables, f"Max index out of bounds: {indexes_flat.max()} >= {cdf_num_tables}"
-
-                assert self._cdf_length.min() >= 2, f"Min cdf_length invalid: {self._cdf_length.min()}" # Need at least [0, scale]
-                assert self._cdf_length.max() <= cdf_max_len, f"Max cdf_length ({self._cdf_length.max()}) exceeds cdf table columns ({cdf_max_len})"
-
             rv = self._encoder.encode_with_indexes(
-                symbols_flat.cpu(),
-                indexes_flat.cpu(),
-                self._quantized_cdf.cpu(),
-                self._cdf_length.cpu(),
-                self._offset.cpu(),
+                symbols_flat,
+                indexes_flat,
+                cdf,
+                cdf_length,
+                offset
             )
             strings.append(rv)
         return strings
 
     def decompress(self, strings: str, indexes: torch.IntTensor, dtype: torch.dtype = torch.float, means: torch.Tensor = None):
-        if not torch.compiler.is_compiling():
-            # Ensure CDFs are computed and ready
-            assert self._quantized_cdf.numel() > 0, "CDFs not computed. Call update() or load state."
-            assert self._cdf_length.numel() > 0, "CDF lengths not computed. Call update() or load state."
-            assert self._offset.numel() > 0, "Offsets not computed. Call update() or load state."
-
-        if means is None:
-             # Need to infer shape for zeros if means is None
-             if indexes.numel() == 0:
-                 means = torch.zeros(0, device=indexes.device, dtype=dtype)
-             else:
-                 # Assuming batch size is len(strings) if available, else 1
-                 batch_size = len(strings) if strings else 1
-                 # Infer spatial/channel dims from indexes, assuming (N, C, ...) structure
-                 num_channels = self._quantized_cdf.shape[0] # Usually C
-                 inferred_shape = (batch_size,) + indexes.shape[1:]
-                 means = torch.zeros(inferred_shape, device=indexes.device, dtype=dtype)
+        strings = [s.cpu() for s in strings]  # Ensure all strings are on CPU
+        indexes = indexes.cpu()
+        cdf = self._quantized_cdf.cpu()
+        cdf_length = self._cdf_length.cpu()
+        offset = self._offset.cpu()
         
         outputs = self._quantized_cdf.new_empty(indexes.size())
         for i, s in enumerate(strings):
             indexes_flat = indexes[i].reshape(-1)
-
-            if not torch.compiler.is_compiling():
-                # Ensure input tensors are valid
-                cdf_num_tables, cdf_max_len =  self._quantized_cdf.shape[0], self._quantized_cdf.shape[1]
-
-                assert isinstance(s, torch.Tensor), f"Input string element {i} is not a Tensor"
-                assert s.dtype == torch.uint8, f"Incorrect encoded string dtype: {s.dtype}"
-                assert indexes_flat.dtype == torch.int32, f"Incorrect indexes dtype: {indexes_flat.dtype}"
-                assert self._quantized_cdf.dtype == torch.int32, f"Incorrect cdf dtype: {self._quantized_cdf.dtype}"
-                assert self._cdf_length.dtype == torch.int32, f"Incorrect cdf_lengths dtype: {self._cdf_length.dtype}"
-                assert self._offset.dtype == torch.int32, f"Incorrect offsets dtype: {self._offset.dtype}"
-
-                assert s.ndim == 1, f"encoded string must be 1D, got {s.ndim}"
-                assert indexes_flat.ndim == 1, f"indexes must be 1D, got {indexes_flat.ndim}"
-                assert self._quantized_cdf.ndim == 2, f"cdf must be 2D, got {self._quantized_cdf.ndim}"
-                assert self._cdf_length.ndim == 1, f"cdf_lengths must be 1D, got {self._cdf_length.ndim}"
-                assert self._offset.ndim == 1, f"offsets must be 1D, got {self._offset.ndim}"
-
-                assert s.is_contiguous(), "Encoded string tensor 's' must be contiguous"
-                assert self._quantized_cdf.shape[0] == len(self._cdf_length), f"Mismatch cdf rows ({cdf_num_tables}) vs cdf_lengths ({len(self._cdf_length)})"
-                assert self._quantized_cdf.shape[0] == len(self._offset), f"Mismatch cdf rows ({cdf_num_tables}) vs offsets ({len(self._offset)})"
-
-                if indexes_flat.numel() > 0: # Avoid min/max on empty tensor
-                    assert indexes_flat.min() >= 0, f"Min index out of bounds: {indexes_flat.min()}"
-                    assert indexes_flat.max() < cdf_num_tables, f"Max index out of bounds: {indexes_flat.max()} >= {cdf_num_tables}"
-
-                assert self._cdf_length.min() >= 2, f"Min cdf_length invalid: {self._cdf_length.min()}"
-                assert self._cdf_length.max() <= cdf_max_len, f"Max cdf_length ({self._cdf_length.max()}) exceeds cdf table columns ({cdf_max_len})"
-
             values = self._decoder.decode_with_indexes(
-                s.cpu(),
-                indexes_flat.cpu(),
-                self._quantized_cdf.cpu(),
-                self._cdf_length.cpu(),
-                self._offset.cpu(),
+                s,
+                indexes_flat,
+                cdf,
+                cdf_length,
+                offset
             )
-
-            if not torch.compiler.is_compiling():
-                # Check if decoder output shape matches index shape
-                assert values.shape == indexes_flat.shape, f"Decoder output shape {values.shape} != index shape {indexes_flat.shape}"
-            outputs[i] = values.reshape(outputs[i].size())
-        
-        if not torch.compiler.is_compiling():
-            # Ensure means has compatible shape for broadcasting or elementwise addition
-            assert outputs.shape == means.shape, f"Output shape {outputs.shape} mismatch with means shape {means.shape}"
-        outputs = outputs.to(dtype) + means # Use specified dtype
-        outputs = torch.clamp(outputs, min=-10.0, max=10.0)
-        
+            outputs[i] = values.reshape(outputs[i].size()).to(outputs.dtype)
+        outputs = outputs.to(dtype) if means is None else outputs.to(means.dtype) + means  
         return outputs
