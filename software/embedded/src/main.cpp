@@ -3,6 +3,7 @@
 #include "i2c_device.h"
 //#include <Wire.h>
 #include <VL53L0X.h>
+#include "InteruptPWMInput.h"
 
 //---------- Pin Allocations ----------
 //Reciever inputs
@@ -46,13 +47,17 @@ VL53L0X ToFB;
 //GY-521
 const int GyroAddr = 0x68;  //I2C address for Gyroscope
 
+//----------PWM Inputs----------
+RCInput rcX(2); //X Axis
+RCInput rcY(3); //Y Axis
+RCInput rcR(4); //Rotation Axis
+
 //function declarations
 void waitForSerial(unsigned long timeout=10000);
 void debugRemoteInputs(int uX, int uY, int uR);
 void debugWheelDirections(int wA, int wB, int wC);
 void debugWheelSpeed(int wA, int wB, int wC);
 void setupSensors();
-
 
 //---------- Working Variables ----------
 int16_t uX = 0, uY = 0, uR = 0;
@@ -74,23 +79,24 @@ void setup() {
   pinMode(BdirOut, OUTPUT);
   pinMode(CdirOut, OUTPUT);
 
+  //begin the interupt timers for the PWM inputs
+  rcX.begin();
+  rcY.begin();
+  rcR.begin();
+
   Serial.print("Setup Done"); 
 }
 
 void loop() {
   //Read inputs: Max value of -500 and 500
-  //TODO Instead of doing PulseIn, maybe try reading the duty cycles?
-  uX = pulseIn(Xin, HIGH, 60000) - 1500;
-  if (uX > 500) uX = 500;
-  if (uX < -500) uX = -500;
-
-  uY = pulseIn(Yin, HIGH, 60000) - 1500;
-  if (uY > 500) uY = 500;
-  if (uY < -500) uY = -500;
-
-  uR = pulseIn(RotateIn, HIGH, 60000) - 1500;
-  if (uR > 500) uR = 500;
-  if (uR < -500) uR = -500;
+  //TODO Test manual interrupt code
+  //TODO look into hardware fixes for the pulseIn function.
+  uX = rcX.getValue(); //X Axis
+  rcX.isSignalLost(30); //define signal loss timeout
+  uY = rcY.getValue(); //Y Axis
+  rcY.isSignalLost(30); //define signal loss timeout
+  uR = rcR.getValue(); //Rotation Axis
+  rcR.isSignalLost(30); //define signal loss timeout
 
   debugRemoteInputs(uX, uY, uR);
 
