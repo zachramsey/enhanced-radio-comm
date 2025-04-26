@@ -3,7 +3,7 @@
 #include "i2c_device.h"
 //#include <Wire.h>
 #include <VL53L0X.h>
-#include "InteruptPWMInput.h"
+#include "InterruptPWMInput.h"
 
 //---------- Pin Allocations ----------
 //Reciever inputs
@@ -48,9 +48,9 @@ VL53L0X ToFB;
 const int GyroAddr = 0x68;  //I2C address for Gyroscope
 
 //----------PWM Inputs----------
-RCInput rcX(2); //X Axis
-RCInput rcY(3); //Y Axis
-RCInput rcR(4); //Rotation Axis
+RCInput rcX(0); //X Axis
+RCInput rcY(1); //Y Axis
+RCInput rcR(2); //Rotation Axis
 
 //function declarations
 void waitForSerial(unsigned long timeout=10000);
@@ -62,6 +62,10 @@ void setupSensors();
 //---------- Working Variables ----------
 int16_t uX = 0, uY = 0, uR = 0;
 int16_t wA = 0, wB = 0, wC = 0;
+
+//---------- Debug Variables ----------
+unsigned long lastDebugTime = 0;  // Tracks the last time the function was called
+const unsigned long debugInterval = 500;  // 500ms interval
 
 void setup() {
   //Initialize Serial for debugging
@@ -98,8 +102,6 @@ void loop() {
   uR = rcR.getValue(); //Rotation Axis
   rcR.isSignalLost(30); //define signal loss timeout
 
-  debugRemoteInputs(uX, uY, uR);
-
   //Read distances from ToF sensors
   //uint16_t distanceA = ToFA.readRangeSingleMillimeters();
   //uint16_t distanceB = ToFB.readRangeSingleMillimeters();
@@ -120,13 +122,12 @@ void loop() {
   wB = round(((0.3333 * uX) - (0.5774 * uY) + (0.3333 * uR)) / 5);
   wC = round(((-0.6667 * uX) + (0.3333 * uR)) / 5);
 
-  debugWheelDirections(wA, wB, wC);
+  
   // Set motor directions
   digitalWrite(AdirOut, wA < 0);
   digitalWrite(BdirOut, wB < 0);
   digitalWrite(CdirOut, wC < 0);
   
-
   //Normalize and scale PWM values
   wA = abs(wA);
   wB = abs(wB);
@@ -137,11 +138,18 @@ void loop() {
     wB = ((wB * 100) / maxVal);
     wC = ((wC * 100) / maxVal);
   }
+
+  if (millis() - lastDebugTime >= debugInterval) {
+    lastDebugTime = millis();  // reset timer
+    debugRemoteInputs(uX, uY, uR);  // your debug function
+    debugWheelDirections(wA, wB, wC);
+    //debugWheelSpeed(wA, wB, wC);
+  }
+
   //Set wheel speeds
   wA = wA * 2.55;
   wB = wB * 2.55;
   wC = wC * 2.55; 
-  debugWheelSpeed(wA, wB, wC);
 
   analogWrite(Aout, wA);
   analogWrite(Bout, wB);
