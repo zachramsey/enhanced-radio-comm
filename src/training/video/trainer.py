@@ -8,7 +8,7 @@ import numpy as np
 
 from .config import *
 from .utils import print_inline_every
-from .simulate import simulate_transmission
+from .simulate import add_uniform_noise, simulate_transmission
 
 from .loader import ImageDataLoader
 from .model import VideoModel
@@ -94,12 +94,17 @@ class VideoModelTrainer:
         self.model = VideoModel(ch_network, ch_compress).to(device)
 
         # Dynamically choose compiler backend if available
-        if torch.onnx.is_onnxrt_backend_supported():
+        use_onnxrt = False
+        use_cuda = False
+        if torch.onnx.is_onnxrt_backend_supported() and use_onnxrt:
+            print(">>> Using ONNXRT backend for compilation")
             self.model = torch.compile(self.model, backend="onnxrt")
-        elif torch.cuda.is_available():
+        elif torch.cuda.is_available() and use_cuda:
             if torch.cuda.get_device_capability()[0] > 6:
+                print(">>> Using TorchInductor backend for compilation")
                 self.model = torch.compile(self.model, backend="inductor", mode="reduce-overhead")
             else:
+                print(">>> Using CudaGraphs backend for compilation")
                 self.model = torch.compile(self.model, backend="cudagraphs")
 
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
@@ -108,7 +113,7 @@ class VideoModelTrainer:
         self.scaler = torch.amp.GradScaler(enabled=DEVICE=="cuda")
 
         if self.model_path is not None:
-            print(f"Loading model from {self.model_path}")
+            print(f">>> Loading model from {self.model_path}")
             self.model.load(self.model_path)
 
 
@@ -125,11 +130,12 @@ class VideoModelTrainer:
         for i, (data, _) in enumerate(self.data.train_dl):
             data = data.to(self.device)
 
-            self.model.hyper_bottleneck.update()
-            self.model.image_bottleneck.update()
+            if i % 5 == 0:
+                self.model.hyper_bottleneck.update()
+                self.model.image_bottleneck.update()
 
             self.optimizer.zero_grad()
-            reconstruction, y_likelihoods, z_likelihoods = self.model(data)
+            reconstruction, y_likelihoods, z_likelihoods = self.model(data, noise_func=add_uniform_noise)
             rate_loss, distortion_loss, loss = self.rate_distortion_loss(reconstruction, y_likelihoods, z_likelihoods, data)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
@@ -163,7 +169,10 @@ class VideoModelTrainer:
 
 
     def evaluate(self):
+        self.model.hyper_bottleneck.update()
+        self.model.image_bottleneck.update()
         self.model.eval()
+
         total_loss = 0
         total_distortion_loss = 0
         total_rate_loss = 0
@@ -184,16 +193,17 @@ class VideoModelTrainer:
                 total_distortion_loss += distortion_loss.item()
                 total_rate_loss += rate_loss.item()
 
-                _reconstruction = reconstruction.permute(0, 3, 1, 2) / 255.0
-                _data = data.permute(0, 3, 1, 2) / 255.0
-                total_psnr += PeakSignalNoiseRatio().update(_data, _reconstruction).compute().item()
+                total_psnr += PeakSignalNoiseRatio().update(
+                    data.permute(0, 3, 1, 2) / 255.0,
+                    reconstruction.permute(0, 3, 1, 2) / 255.0
+                ).compute().item()
                 # total_ssim += StructuralSimilarity().update(_data, _reconstruction).compute().item()
 
                 msg = (f"Eval Step [{i*self.batch_size}/{len_data}] | "
                        f"Rate Loss: {rate_loss.item():.6f} | "
                        f"Distortion Loss: {distortion_loss.item():.6f} | "
                        f"Total Loss: {loss.item():.6f}")
-                print_inline_every(i, 1, len_dl, msg)
+                print(msg, end="\r")
 
         avg_loss = total_loss / len_dl
         avg_distortion_loss = total_distortion_loss / len_dl
@@ -209,23 +219,26 @@ class VideoModelTrainer:
     
 
     def test_model(self, step:int, loader:DataLoader):
-        # Set up and save the encoder model
-        encoder = VideoEncoder(self.ch_network, self.ch_compress).to(self.device)
-        encoder.load(self.model_path)
-        encoder.to('cpu')
-        encoder_path = f"{self.model_dir}/EncoderModel_{step*self.batch_size}.pth"
-        encoder.save(encoder_path)
+        self.model.hyper_bottleneck.update()
+        self.model.image_bottleneck.update()
+        self.model.eval()
 
-        # Set up and save the decoder model
-        decoder = VideoDecoder(self.ch_network, self.ch_compress).to(self.device)
-        decoder.load(self.model_path)
-        decoder.to('cpu')
-        decoder_path = f"{self.model_dir}/DecoderModel_{step*self.batch_size}.pth"
-        decoder.save(decoder_path)
+        # # Set up and save the encoder model
+        # encoder = VideoEncoder(self.ch_network, self.ch_compress).to(self.device)
+        # encoder.load(self.model_path)
+        # # encoder.to('cpu')
+        # encoder_path = f"{self.model_dir}/EncoderModel_{step*self.batch_size}.pth"
+        # encoder.save(encoder_path)
+
+        # # Set up and save the decoder model
+        # decoder = VideoDecoder(self.ch_network, self.ch_compress).to(self.device)
+        # decoder.load(self.model_path)
+        # # decoder.to('cpu')
+        # decoder_path = f"{self.model_dir}/DecoderModel_{step*self.batch_size}.pth"
+        # decoder.save(decoder_path)
 
         # Simulate transmission with the original models
-        with torch.no_grad():
-            simulate_transmission(loader, encoder, decoder, self.plot_dir, type="errors")
+        simulate_transmission(loader, self.model, self.plot_dir, self.device)
             
 
     def rate_distortion_loss(self, reconstruction: torch.Tensor, latent_likelihoods: torch.Tensor, hyper_latent_likelihoods: torch.Tensor, original: torch.Tensor):

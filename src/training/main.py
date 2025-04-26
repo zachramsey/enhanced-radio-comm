@@ -8,6 +8,8 @@ from video.loader import ImageDataLoader
 from video.trainer import VideoModelTrainer
 
 if __name__ == "__main__":
+    print()
+
     # random.seed(seed)
     # np.random.seed(seed)
     torch.manual_seed(42)
@@ -29,10 +31,10 @@ if __name__ == "__main__":
     os.makedirs(MODEL_DIR)
     os.makedirs(EXPORT_DIR)
 
-    # if DEVICE == "cuda":
-    #     torch.backends.cudnn.benchmark = True
+    enable_benchmark = False
+    if DEVICE == "cuda":
+        torch.backends.cudnn.benchmark = enable_benchmark
 
-    print()
     dataset = ImageDataLoader(
         DATASET_DIR, 
         DATASET, 

@@ -56,12 +56,12 @@ class VideoModel(nn.Module):
 
         # Q, AE, AD
         self.image_bottleneck = GaussianConditional(scale_table=[0.11, 0.22, 0.44, 0.88, 1.76, 3.52, 7.04, 14.08])
-        self.entropy_parameters = nn.Sequential(
-            nn.Conv2d(c_compress, 2*c_compress, 3, padding=1, groups=2),
-            nn.ReLU(inplace=True),
-            # nn.Conv2d(2*c_compress, 2*c_compress, 3, padding=1),
-            # nn.ReLU(inplace=True),
-        )
+        # self.entropy_parameters = nn.Sequential(
+        #     nn.Conv2d(c_compress, 2*c_compress, 3, padding=1, groups=2),
+        #     nn.ReLU(inplace=True),
+        #     # nn.Conv2d(2*c_compress, 2*c_compress, 3, padding=1),
+        #     # nn.ReLU(inplace=True),
+        # )
 
         # g_s
         # (c_compress, 30, 40) -> (c_network, 60, 80)
@@ -79,7 +79,8 @@ class VideoModel(nn.Module):
             nn.Sigmoid()
         )
 
-    def forward(self, x):   # x: (batch_size, channels, height, width)
+
+    def forward(self, x, noise_func = None, **kwargs):   # x: (batch_size, channels, height, width)
         '''
         Forward pass of the model
 
@@ -105,36 +106,35 @@ class VideoModel(nn.Module):
         x = x.float() / 255.0   #      [0, 255] -> [0.0, 1.0]
 
         # Encode latent image from input image
-        y = self.image_analysis(x)
+        self.y = self.image_analysis(x)
 
         # Encode latent hyper-prior from latent image
-        z = self.hyper_analysis(y)
+        self.z = self.hyper_analysis(self.y)
         
         # Add noise to the latent hyper-prior (for training)
-        z_hat, z_likelihoods = self.hyper_bottleneck(z)
-        # print("\n----------------\nz_hat:\n", z_hat[0], "\nz_likelihoods:\n", z_likelihoods[0])
+        self.z_hat, self.z_likelihoods = self.hyper_bottleneck(self.z, noise_func=noise_func, **kwargs)
         
         # Decode hyper-prior from compressed latent hyper-prior
-        hyper_params = self.hyper_synthesis(z_hat)
+        self.hyper_params = self.hyper_synthesis(self.z_hat)
 
         # Get the hyper-parameters (mean & std of a Gaussian distribution) from the hyper-prior
-        # sigma_hat, means_hat = torch.chunk(self.entropy_parameters(hyper_params), 2, 1)
+        # sigma_hat, means_hat = torch.chunk(self.entropy_parameters(self.hyper_params), 2, 1)
 
         # Add noise to the latent image (for training)
-        y_hat, y_likelihoods = self.image_bottleneck(y, hyper_params)#sigma_hat, means=means_hat)
-        # print("\n----------------\ny_hat:\n", y_hat[0], "\ny_likelihoods:\n", y_likelihoods[0])
+        self.y_hat, self.y_likelihoods = self.image_bottleneck(self.y, self.hyper_params, noise_func=noise_func, **kwargs)#sigma_hat, means=means_hat)
 
         # Decode image from decompressed latent image
-        x_hat = self.image_synthesis(y_hat)
+        self.x_hat = self.image_synthesis(self.y_hat)
 
         # Convert the tensor to the expected output format
-        x_hat = x_hat.permute(0, 2, 3, 1)               # 1 x C x H x W -> 1 x H x W x C
-        min = x_hat.min()
-        x_hat = (x_hat - min) / (x_hat.max() - min)     # Normalize to [0, 1]
-        x_hat = (x_hat * 255).round()                   # [0.0, 1.0] -> [0, 255]
+        self.x_hat = self.x_hat.permute(0, 2, 3, 1)               # 1 x C x H x W -> 1 x H x W x C
+        min = self.x_hat.min()
+        self.x_hat = (self.x_hat - min) / (self.x_hat.max() - min)     # Normalize to [0, 1]
+        self.x_hat = (self.x_hat * 255).round()                   # [0.0, 1.0] -> [0, 255]
 
-        return x_hat, y_likelihoods, z_likelihoods
+        return self.x_hat, self.y_likelihoods, self.z_likelihoods
     
+
     def save(self, path):
         '''
         Save the model state dict
@@ -145,6 +145,7 @@ class VideoModel(nn.Module):
             Path to save the model state dict
         '''
         torch.save(self.state_dict(), path)
+
 
     def load(self, path):
         '''

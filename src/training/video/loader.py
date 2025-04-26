@@ -54,12 +54,12 @@ class ImageDataLoader:
         self._split_data(val_test_dataset)
 
     def _get_sun397(self):
-        print("Downloading SUN397 dataset...")
+        print(">>> Loading SUN397 dataset")
         dataset = datasets.SUN397(root=self.dataset_dir, download=True, transform=self.common_transform)
         
         # Remove images smaller than 480x640
         if os.path.exists(f"{self.dataset_dir}/image_files.pkl") and os.path.exists(f"{self.dataset_dir}/labels.pkl"):
-            print("Loading existing image files and labels...")
+            print(">>> Loading existing image files and labels")
             with open(f"{self.dataset_dir}/image_files.pkl", "rb") as f:
                 new_image_files = pickle.load(f)
             with open(f"{self.dataset_dir}/labels.pkl", "rb") as f:
@@ -78,7 +78,7 @@ class ImageDataLoader:
                     new_labels.append(dataset._labels[i])
             print(f"\nRemoved {len_dataset - len(new_image_files)} images smaller than 480x640")
 
-            print("Saving image files and labels...")
+            print(">>> Saving image files and labels")
             with open(f"{self.dataset_dir}/image_files.pkl", "wb") as f:
                 pickle.dump(new_image_files, f)
             with open(f"{self.dataset_dir}/labels.pkl", "wb") as f:
@@ -88,7 +88,7 @@ class ImageDataLoader:
         dataset._image_files = new_image_files
         dataset._labels = new_labels
 
-        print("Splitting dataset...")
+        print(">>> Splitting dataset")
         self._split_data(dataset)
 
     def _split_data(self, dataset: Dataset):

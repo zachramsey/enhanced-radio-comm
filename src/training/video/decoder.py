@@ -119,13 +119,13 @@ class VideoDecoder(VideoModel):
         hyper_params = self.hyper_synthesis(z_hat)
 
         # Dequantize the latent image
-        sigma_hat, means_hat = self.entropy_parameters(hyper_params).chunk(2, 1)
+        # sigma_hat, means_hat = self.entropy_parameters(hyper_params).chunk(2, 1)
 
         # Build the scale indexes for quantization
-        indexes = self.image_bottleneck.build_indexes(sigma_hat)
+        indexes = self.image_bottleneck.build_indexes(hyper_params)#sigma_hat)
 
         # Dequantize the latent image with the scale indexes and hyper-prior means
-        y = self.image_bottleneck.decompress(y_string, indexes, means=means_hat)
+        y = self.image_bottleneck.decompress(y_string, indexes)#, means=means_hat)
 
         # Decode image from dequantized latent image
         x_hat = self.image_synthesis(y)

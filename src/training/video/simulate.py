@@ -6,7 +6,7 @@ from datetime import datetime
 
 from .utils import tensor_to_image
 
-def simulate_errors(data, p=None, r=None, k=1, h=0):
+def simulate_errors(data: torch.Tensor, p=None, r=None, k=1, h=0) -> torch.Tensor:
     '''
     Simulate errors using the Gilbert-Elliot burst error model.
 
@@ -16,8 +16,8 @@ def simulate_errors(data, p=None, r=None, k=1, h=0):
 
     Parameters
     ----------
-    data : list[bytes]
-        A list of input byte streams.
+    data : Tensor
+        The input data to simulate errors on.
     p : float
         Probability of transitioning from the Good state to the Bad state.
     r : float
@@ -29,7 +29,8 @@ def simulate_errors(data, p=None, r=None, k=1, h=0):
 
     Returns
     -------
-    errors : list[bytes]
+    errors : Tensor
+        The input data with errors added.
 
     Notes
     -----
@@ -53,10 +54,16 @@ def simulate_errors(data, p=None, r=None, k=1, h=0):
         else:
             p, r = 0.92, 0.08
 
-    b = len(data)                           # Number of batches
-    n = [len(data[i])*8 for i in range(b)]  # Number of bits in each batch
-    _r, _k, _h = 1-r, 1-k, 1-h              # Pre-invert probabilities
-    _p = p/(p+r)                            # Stationary probability of being in the Good state
+    shape = data.shape
+    device = data.device
+
+    data = data.reshape(shape[0], -1)              # Flatten the data
+    data = data.detach().cpu().byte().numpy()   # Convert to byte array
+
+    b = len(data)                               # Number of batches
+    n = [len(data[i])*8 for i in range(b)]      # Number of bits in each batch
+    _r, _k, _h = 1-r, 1-k, 1-h                  # Pre-invert probabilities
+    _p = p/(p+r)                                # Stationary probability of being in the Good state
 
     # Generate states
     rand = [np.random.random_sample((n_i,)) for n_i in n]   # Generate random numbers for states
@@ -77,22 +84,23 @@ def simulate_errors(data, p=None, r=None, k=1, h=0):
         e = [(_s & (_rand < _h)) | (~_s & (_rand < _k)) for _s, _rand in zip(s, rand)]
 
     # Pack error masks into bytes
-    masks = [np.packbits(e_i) for e_i in e]
+    masks = np.stack([np.packbits(e_i) for e_i in e], axis=0)  # Convert to bytes
 
-    # XOR the error signal with the data
-    outs = [np.bitwise_xor(d_i, m_i) for d_i, m_i in zip(data, masks)]
-    
-    return outs
+    data = np.bitwise_xor(data, masks)                  # Apply error signal to data
+    data = torch.from_numpy(data).reshape(shape[0], -1) # Convert back to tensor
+    data = data.float().to(device).reshape(shape)       # Reshape to original data shape
+
+    return data
 
 
-def simulate_impairments(data: bytes, snr_db: float = 10, interference_prob: float = 0.1, flip_prob: float = 0.01, device: str = "cuda") -> bytes:
+def simulate_impairments(data: torch.Tensor, snr_db: float = 10, interference_prob: float = 0.1, flip_prob: float = 0.01) -> torch.Tensor:
     """
-    Apply realistic impairments (AWGN, fading, interference, burst errors) to a byte stream using PyTorch for GPU acceleration.
+    Apply realistic impairments (AWGN, fading) to a tensor.
     
     Parameters
     ----------
-    data : bytes
-        The input byte stream.
+    data : Tensor
+        Floating-point data in the range [-128, 127].
     snr_db : float
         Signal-to-noise ratio in dB for AWGN.
     interference_prob : float
@@ -104,111 +112,99 @@ def simulate_impairments(data: bytes, snr_db: float = 10, interference_prob: flo
     
     Returns
     -------
-    bytes
-        The impaired byte stream.
+    Tensor
+        The input data with impairments applied.
     """
-    # Move data to tensor on GPU
-    bits = torch.from_numpy(np.unpackbits(np.frombuffer(data, dtype=np.uint8))).to(device, dtype=torch.float32)
     rand = np.random.rand(2)
+
+    shape = data.shape
+    device = data.device
+
+    data = data.cpu().byte().reshape(data.shape[0], -1)  # Flatten the data
+    
+    # unpack bits
+    bits = torch.zeros(data.shape[0], data.shape[1] * 8, dtype=torch.float32, device=data.device)
+    for i in range(data.shape[0]):
+        bits[i] = torch.from_numpy(np.unpackbits(data[i].numpy())).to(data.device, dtype=torch.float32)
 
     # Simulate additive white Gaussian noise
     if rand[0] < interference_prob:
-        noise_std = torch.sqrt(torch.tensor(1 / (2 * 10 ** (snr_db / 10)), device=device))
+        noise_std = torch.sqrt(torch.tensor(1 / (2 * 10 ** (snr_db / 10)), device=data.device))
         bits = bits + torch.randn_like(bits) * noise_std
     
     # Simulate Rayleigh fading
     if rand[1] < interference_prob:
-        bits = bits * torch.abs(torch.randn_like(bits, device=device))
+        bits = bits * torch.abs(torch.randn_like(bits, device=data.device))
 
-    bits = torch.sigmoid(bits).round().to(torch.uint8)
-    
-    # Move back to CPU, convert to bytes
-    return [np.packbits(bits.detach().cpu().numpy()).tobytes()]
+    # Discretize the data to binary
+    bits = torch.round(torch.sigmoid(bits))
+    bits = bits.reshape(shape[0], -1).byte()
+
+    # Pack bits into bytes
+    data = torch.zeros(shape[0], shape[1]*shape[2]*shape[3], dtype=torch.float32, device=data.device)
+    for i in range(shape[0]):
+        data[i] = torch.from_numpy(np.packbits(bits[i].cpu().numpy())).to(data.device, dtype=torch.float32)
+
+    # Reshape to original data shape
+    return data.reshape(*shape).to(device)
 
 
-def add_uniform_noise(data: bytes, noise_level: float = 0.1) -> bytes:
+def add_uniform_noise(data: torch.Tensor, noise_level: float = 64.0) -> torch.Tensor:
     """
-    Add uniform noise to a byte stream.
-    
+    Add uniform noise to floating point data.
+
     Parameters
     ----------
-    data : bytes
-        The input byte stream.
+    data : torch.Tensor
+        The input tensor in range [-128, 127].
     noise_level : float
         The level of uniform noise to add.
-    
+
     Returns
     -------
-    bytes
-        The noisy byte stream.
+    torch.Tensor
+        The noisy tensor.
     """
-    # Convert bytes to numpy array
-    arr = np.frombuffer(data, dtype=np.uint8)
-    
-    # Add uniform noise
-    noise_level = np.round(noise_level * 255)
-    noise = np.random.randint(-1 * noise_level, noise_level + 1, size=arr.shape).astype(np.int16)
-    noisy_arr = np.clip(arr + noise, 0, 255).astype(np.uint8)
-    
-    # Convert back to bytes
-    return noisy_arr.tobytes()
+    return torch.clamp(data + torch.empty_like(data).uniform_(-noise_level-1, noise_level), -128.0, 127.0)
 
 
-def add_gaussian_noise(data: bytes, scale: float = 1) -> bytes:
+def add_gaussian_noise(data: torch.Tensor, scale: float = 20.0) -> torch.Tensor:
     """
-    Add Gaussian noise to a byte stream.
-    
+    Add Gaussian noise to floating point data.
+
     Parameters
     ----------
-    data : bytes
-        The input byte stream.
+    data : torch.Tensor
+        The input tensor.
     scale : float
         The scale of the Gaussian noise to add.
-    
+
     Returns
     -------
-    bytes
-        The noisy byte stream.
+    torch.Tensor
+        The noisy tensor.
     """
-    # Convert bytes to numpy array
-    arr = np.frombuffer(data, dtype=np.uint8)
-    
-    # Add Gaussian noise
-    noise = np.random.normal(0, np.round(scale * 25.5), size=arr.shape).astype(np.int16)
-    noisy_arr = np.clip(arr + noise, 0, 255).astype(np.uint8)
-    
-    # Convert back to bytes
-    return noisy_arr.tobytes()
+    return torch.clamp(data + torch.empty_like(data).normal_(-scale, scale), -128.0, 127.0)
 
 
-def add_impulse_noise(data: bytes, impulse_prob: float = 0.1) -> bytes:
+def plot_images(images: dict[str, np.ndarray], plot_dir: str):
     """
-    Add impulse noise to a byte stream.
+    Plot images in a grid. Each row corresponds to one input image, and
+    each column corresponds to different operations applied to the input.
     
     Parameters
     ----------
-    data : bytes
-        The input byte stream.
-    impulse_prob : float
-        The probability of an impulse noise event.
-    
-    Returns
-    -------
-    bytes
-        The noisy byte stream.
+    images : dict[str, np.ndarray]
+        Dictionary containing images to plot.  
+        Keys: column headers (e.g., 'Input', 'Op1', ...)  
+        Values: arrays of shape (n_inputs, H, W, 3) with dtype np.uint8.
+    plot_dir : str
+        Directory to save the plot.
     """
-    # Convert bytes to numpy array
-    arr = np.frombuffer(data, dtype=np.uint8)
     
-    # Add impulse noise
-    mask = np.random.rand(*arr.shape) < impulse_prob
-    arr[mask] = np.random.randint(0, 256, size=np.sum(mask)).astype(np.uint8)
-    
-    # Convert back to bytes
-    return arr.tobytes()
 
 
-def simulate_transmission(loader: DataLoader, encode, decode, plot_dir: str, type: str|None = None):
+def simulate_transmission(loader: DataLoader, model, plot_dir: str, device: str = "cuda"):
     '''
     Simulate the transmission of data through a noisy channel and visualize the results.
 
@@ -222,107 +218,74 @@ def simulate_transmission(loader: DataLoader, encode, decode, plot_dir: str, typ
         Callback function to decode the 'transmitted' data.
     plot_dir : str
         Directory to save the plots.
-    type : str
-        Type of simulation to perform. Options:
-            - "errors": Simulate errors using Gilbert-Elliot model.
-            - "impairments": Simulate impairments using realistic models.
-            - "uniform_noise": Add uniform noise to the data.
-            - "gaussian_noise": Add Gaussian noise to the data.
-            - "impulse_noise": Add impulse noise to the data.
     '''
-    fig, axs = plt.subplots(len(loader), 4)
+    images = {}
 
     # Execute the methods
     for i, (data, _) in enumerate(loader):
-        # Encode the input tensor
-        z_string, y_string = encode(data)
+        data = data.to(device)
 
-        # Simulate transmission errors
-        if type is None:
-            z_string_good = [z_string]
-            y_string_good = [y_string]
+        # Convert tensor to image
+        input = tensor_to_image(data.unsqueeze(0))
 
-            z_string_mid = [z_string]
-            y_string_mid = [y_string]
+        # Simulate clean transmission
+        clean = tensor_to_image(model(data, None)[0].unsqueeze(0))
 
-            z_string_bad = [z_string]
-            y_string_bad = [y_string]
-        elif type == "errors":
-            z_string_good = simulate_errors([z_string], p=0.13, r=0.84)
-            y_string_good = simulate_errors([y_string], p=0.13, r=0.84)
+        # Simulate burst errors
+        burst = tensor_to_image(model(data, simulate_errors, p=0.13, r=0.84)[0].unsqueeze(0))
 
-            z_string_mid = simulate_errors([z_string], p=0.29, r=0.78)
-            y_string_mid = simulate_errors([y_string], p=0.29, r=0.78)
+        # Simulate channel impairments
+        impair = tensor_to_image(model(data, simulate_impairments)[0].unsqueeze(0))
 
-            z_string_bad = simulate_errors([z_string], p=0.92, r=0.08)
-            y_string_bad = simulate_errors([y_string], p=0.92, r=0.08)
-        elif type == "impairments":
-            z_string_good = simulate_impairments(z_string, snr_db=20, interference_prob=0.1, flip_prob=0.01)
-            y_string_good = simulate_impairments(y_string, snr_db=20, interference_prob=0.1, flip_prob=0.01)
+        # Add uniform noise
+        uniform = tensor_to_image(model(data, add_uniform_noise)[0].unsqueeze(0))
 
-            z_string_mid = simulate_impairments(z_string, snr_db=5, interference_prob=0.25, flip_prob=0.025)
-            y_string_mid = simulate_impairments(y_string, snr_db=5, interference_prob=0.25, flip_prob=0.025)
+        # Add Gaussian noise
+        gaussian = tensor_to_image(model(data, add_gaussian_noise)[0].unsqueeze(0))
 
-            z_string_bad = simulate_impairments(z_string, snr_db=0, interference_prob=0.4, flip_prob=0.04)
-            y_string_bad = simulate_impairments(y_string, snr_db=0, interference_prob=0.4, flip_prob=0.04)
-        elif type == "uniform_noise":
-            z_string_good = add_uniform_noise(z_string, noise_level=0.1)
-            y_string_good = add_uniform_noise(y_string, noise_level=0.1)
-
-            z_string_mid = add_uniform_noise(z_string, noise_level=0.25)
-            y_string_mid = add_uniform_noise(y_string, noise_level=0.25)
-
-            z_string_bad = add_uniform_noise(z_string, noise_level=0.4)
-            y_string_bad = add_uniform_noise(y_string, noise_level=0.4)
-        elif type == "gaussian_noise":
-            z_string_good = add_gaussian_noise(z_string, scale=1)
-            y_string_good = add_gaussian_noise(y_string, scale=1)
-
-            z_string_mid = add_gaussian_noise(z_string, scale=25)
-            y_string_mid = add_gaussian_noise(y_string, scale=25)
-
-            z_string_bad = add_gaussian_noise(z_string, scale=4)
-            y_string_bad = add_gaussian_noise(y_string, scale=4)
-        elif type == "impulse_noise":
-            z_string_good = add_impulse_noise(z_string, impulse_prob=0.1)
-            y_string_good = add_impulse_noise(y_string, impulse_prob=0.1)
-
-            z_string_mid = add_impulse_noise(z_string, impulse_prob=0.25)
-            y_string_mid = add_impulse_noise(y_string, impulse_prob=0.25)
-
-            z_string_bad = add_impulse_noise(z_string, impulse_prob=0.4)
-            y_string_bad = add_impulse_noise(y_string, impulse_prob=0.4)
-
-        # Decode the received data
-        dec_good = decode(z_string_good, y_string_good)
-        dec_mid = decode(z_string_mid, y_string_mid)
-        dec_bad = decode(z_string_bad, y_string_bad)
-
-        # Convert tensors to numpy arrays for visualization
-        img_in = tensor_to_image(data)
-        img_good = tensor_to_image(dec_good)
-        img_mid = tensor_to_image(dec_mid)
-        img_bad = tensor_to_image(dec_bad)
-
-        # Plot the images
-        axs[i, 0].imshow(img_in)
-        axs[i, 1].imshow(img_good)
-        axs[i, 2].imshow(img_mid)
-        axs[i, 3].imshow(img_bad)
-
-        # Hide the axes
-        axs[i, 0].axis('off')
-        axs[i, 1].axis('off')
-        axs[i, 2].axis('off')
-        axs[i, 3].axis('off')
-
-        # Set titles over columns of the first row
+        # Store images in dictionary
         if i == 0:
-            axs[i, 0].set_title("Input")
-            axs[i, 1].set_title("Good Signal")
-            axs[i, 2].set_title("Fair Signal")
-            axs[i, 3].set_title("Bad Signal")
+            images['Input'] = input
+            images['Clean'] = clean
+            images['Errors'] = burst
+            images['Impaired'] = impair
+            images['Uniform'] = uniform
+            images['Gaussian'] = gaussian
+        else:
+            images['Input'] = np.concatenate((images['Input'], input), axis=0)
+            images['Clean'] = np.concatenate((images['Clean'], clean), axis=0)
+            images['Errors'] = np.concatenate((images['Errors'], burst), axis=0)
+            images['Impaired'] = np.concatenate((images['Impaired'], impair), axis=0)
+            images['Uniform'] = np.concatenate((images['Uniform'], uniform), axis=0)
+            images['Gaussian'] = np.concatenate((images['Gaussian'], gaussian), axis=0)
 
-    fig.tight_layout()
+    # Plot images
+    col_headers = list(images.keys())
+    n_cols = len(col_headers)
+    n_inputs, height, width, _ = images[col_headers[0]].shape
+
+    fig_width = min(n_cols * 2.5 * max(1, width / height), 50)
+    fig_height = min(n_inputs * 2.5 * max(1, height / width), 50)
+
+    fig, axes = plt.subplots(
+        n_inputs, n_cols,
+        figsize=(fig_width, fig_height),
+        squeeze=False,
+        gridspec_kw={'hspace': 0.05, 'wspace': 0.05}
+    )
+
+    for col_idx, header in enumerate(col_headers):
+        axes[0, col_idx].set_title(header, fontsize=32)
+        img_stack = images[header]
+        for row_idx in range(n_inputs):
+            ax = axes[row_idx, col_idx]
+            img_data = img_stack[row_idx]
+            ax.imshow(img_data)
+            ax.axis('off')
+
+    fig.subplots_adjust(left=0.05, bottom=0.05, right=0.95, top=0.95, wspace=0.05, hspace=0.05)
+
+    # Save the plot
     plt.savefig(f"{plot_dir}/Simulate_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
-    plt.close()
+    plt.close(fig)
+    
