@@ -65,7 +65,7 @@ int16_t wA = 0, wB = 0, wC = 0;
 
 //---------- Debug Variables ----------
 unsigned long lastDebugTime = 0;  // Tracks the last time the function was called
-const unsigned long debugInterval = 500;  // 500ms interval
+const unsigned long debugInterval = 100;  // 500ms interval
 
 void setup() {
   //Initialize Serial for debugging

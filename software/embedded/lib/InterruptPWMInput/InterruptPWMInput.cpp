@@ -47,8 +47,9 @@ void RCInput::handleInterrupt0() {
         // This MUST be done after we do the micros() - pulseStart calculation
         int32_t adjustedDuration = (int32_t)duration - 1500;
         inst->_value = constrain(adjustedDuration, -500, 500);
-        inst->_lastPulseTime = millis();
+        inst->_lastPulseTime = millis(); //used to check for signal loss
       }
+      inst->_pulseStart = 0; // Reset pulse start to avoid false readings
     }
   }
 }
@@ -67,6 +68,7 @@ void RCInput::handleInterrupt1() {
         inst->_value = constrain(adjustedDuration, -500, 500);
         inst->_lastPulseTime = millis();
       }
+      inst->_pulseStart = 0; // Reset pulse start to avoid false readings
     }
   }
 }
@@ -85,6 +87,7 @@ void RCInput::handleInterrupt2() {
         inst->_value = constrain(adjustedDuration, -500, 500);
         inst->_lastPulseTime = millis();
       }
+      inst->_pulseStart = 0; // Reset pulse start to avoid false readings
     }
   }
 }
