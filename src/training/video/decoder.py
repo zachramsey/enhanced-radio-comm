@@ -1,4 +1,5 @@
 
+import torch
 from torch import ByteTensor
 from .model import VideoModel
 
@@ -35,68 +36,12 @@ class VideoDecoder(VideoModel):
     decode(z_string, y_string) -> ByteTensor
         Decompress the hyper latent and image latent to RGB888-encoded ByteTensor
     '''
-    def __init__(self, network_channels: int, compress_channels: int):
+    def __init__(self, network_channels: int, compress_channels: int, device: str = "cpu"):
         super().__init__(network_channels, compress_channels)
-        self.eval()
+        self.device = device
+        self.to(device)
 
-    # def decode_hyper(self, z_string: ByteTensor) -> None:
-    #     '''
-    #     Decode the hyper latent
-
-    #     Upon receiving the compressed hyper latent from the remote device,
-    #     the control device will call this function to decompress the hyper latent.
-
-    #     Parameters
-    #     ----------
-    #     z_strings : ByteTensor
-    #         Quantized hyper-prior latent
-    #     '''
-    #     # Dequantize the latent hyper-prior
-    #     z_hat = self.hyper_bottleneck.decompress([z_string], (8, 10))
-
-    #     # Decode hyper-prior from latent hyper-prior
-    #     self.hyper_params = self.hyper_synthesis(z_hat)
-
-
-    # def decode_image(self, y_string: ByteTensor) -> ByteTensor:
-    #     '''
-    #     Decode the image latent
-
-    #     After the compressed hyper latent is decompressed, the control device 
-    #     will call this function to complete the reconstruction of the image data.
-
-    #     Parameters
-    #     ----------
-    #     y_strings : ByteTensor
-    #         Quantized image latent
-        
-    #     Returns
-    #     -------
-    #     x_hat : ByteTensor
-    #         Reconstructed image data | *(height, width, channels)*
-    #     '''
-    #     # Dequantize the latent image
-    #     sigma_hat, means_hat = self.entropy_parameters(self.hyper_params).chunk(2, 1)
-
-    #     # Build the scale indexes for quantization
-    #     indexes = self.image_bottleneck.build_indexes(sigma_hat)
-
-    #     # Dequantize the latent image with the scale indexes and hyper-prior means
-    #     y = self.image_bottleneck.decompress([y_string], indexes, means=means_hat)
-
-    #     # Decode image from dequantized latent image
-    #     x_hat = self.image_synthesis(y)
-
-    #     # Convert the tensor to the expected output format
-    #     x_hat = x_hat.squeeze(0).permute(1, 2, 0)   # 1 x C x H x W -> H x W x C
-    #     min = x.min()
-    #     x = (x - min) / (x.max() - min)             # Normalize to [0, 1]
-    #     x = (x * 255).round().to(ByteTensor)        # [0.0, 1.0] -> [0, 255]
-
-    #     return x_hat
-    
-
-    def forward(self, z_string: ByteTensor, y_string: ByteTensor) -> ByteTensor:
+    def forward(self, z_string: torch.CharTensor, y_string: torch.CharTensor) -> ByteTensor:
         '''
         Decompress the data to RGB888-encoded output
 
@@ -112,28 +57,28 @@ class VideoDecoder(VideoModel):
         x_hat : ByteTensor
             Reconstructed image data | *(height, width, channels)*
         '''
+
+        z_string = z_string.float()
+        y_string = y_string.float()
+
         # Dequantize the latent hyper-prior
-        z_hat = self.hyper_bottleneck.decompress(z_string, (8, 10))
+        z = self.hyper_bottleneck.dequantize(z_string, (self.c_network, 8, 10))
 
         # Decode hyper-prior from latent hyper-prior
-        hyper_params = self.hyper_synthesis(z_hat)
+        hyper_params = self.hyper_synthesis(z)
 
         # Dequantize the latent image
-        # sigma_hat, means_hat = self.entropy_parameters(hyper_params).chunk(2, 1)
-
-        # Build the scale indexes for quantization
-        indexes = self.image_bottleneck.build_indexes(hyper_params)#sigma_hat)
+        means_hat = self.mean_params(hyper_params)
 
         # Dequantize the latent image with the scale indexes and hyper-prior means
-        y = self.image_bottleneck.decompress(y_string, indexes)#, means=means_hat)
+        y = self.image_bottleneck.dequantize(y_string, (self.c_compress, 30, 40), means=means_hat)
 
         # Decode image from dequantized latent image
         x_hat = self.image_synthesis(y)
 
         # Convert the tensor to the expected output format
-        x_hat = x_hat.permute(0, 2, 3, 1)               # 1 x C x H x W -> 1 x H x W x C
-        min = x_hat.min()
-        x_hat = (x_hat - min) / (x_hat.max() - min)     # Normalize to [0, 1]
-        x_hat = (x_hat * 255).round().byte()            # [0.0, 1.0] -> [0, 255]
+        x_hat = x_hat.squeeze(0)                            # 1 x C x H x W -> C x H x W
+        x_hat = x_hat.permute(1, 2, 0)                      #     C x H x W -> H x W x C
+        x_hat = (x_hat * 255).round().byte().contiguous()   #    [0.0, 1.0] -> [0, 255]
 
         return x_hat

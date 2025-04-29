@@ -21,7 +21,8 @@ class ImageDataLoader:
             train_pct: float = 0, 
             val_pct: float = 0, 
             test_pct: float = 0, 
-            num_examples: int = 0
+            num_examples: int = 0,
+            device: str = ''
         ):
 
         self.dataset_dir = dataset_dir
@@ -32,10 +33,11 @@ class ImageDataLoader:
         self.test_pct = test_pct
         self.num_examples = num_examples
 
+        self.device = device
+
         self.common_transform = transforms.Compose([
             transforms.RandomCrop((480, 640), pad_if_needed=True),
-            transforms.Lambda(lambda img: torch.from_numpy(np.array(img)).to(torch.float32))
-            # transforms.ToTensor()
+            transforms.ToTensor()
         ])
 
         if not os.path.exists(dataset_dir):
@@ -97,22 +99,22 @@ class ImageDataLoader:
             n_train = int(n_rem * self.train_pct)
             n_rem -= n_train
             train_data, dataset = random_split(dataset, [n_train, n_rem])
-            self.train_data = DataLoader(train_data, batch_size=self.batch_size, shuffle=True, num_workers=4, drop_last=True)
+            self.train_data = DataLoader(train_data, batch_size=self.batch_size, shuffle=True, num_workers=4, pin_memory=True, pin_memory_device=self.device)
 
         if self.num_examples > 0:
             n_rem -= self.num_examples
             example_data, dataset = random_split(dataset, [self.num_examples, n_rem])
-            self.example_data = DataLoader(example_data, batch_size=1, shuffle=False, num_workers=4)
+            self.example_data = DataLoader(example_data, batch_size=1, shuffle=False, num_workers=0)
 
         if self.val_pct == 0:
-            self.test_data = DataLoader(dataset, batch_size=self.batch_size, shuffle=False, num_workers=4, drop_last=True)
+            self.test_data = DataLoader(dataset, batch_size=self.batch_size, shuffle=False, num_workers=4, pin_memory=True, pin_memory_device=self.device)
         elif self.test_pct == 0:
-            self.val_data = DataLoader(dataset, batch_size=self.batch_size, shuffle=False, num_workers=4, drop_last=True)
+            self.val_data = DataLoader(dataset, batch_size=self.batch_size, shuffle=False, num_workers=4, pin_memory=True, pin_memory_device=self.device)
         else:
             n_test = int(n_rem * self.test_pct / (self.val_pct + self.test_pct)) - self.num_examples
             val_data, test_data = random_split(dataset, [n_rem - n_test, n_test])
-            self.val_data = DataLoader(val_data, batch_size=self.batch_size, shuffle=False, num_workers=4, drop_last=True)
-            self.test_data = DataLoader(test_data, batch_size=self.batch_size, shuffle=False, num_workers=4, drop_last=True)
+            self.val_data = DataLoader(val_data, batch_size=self.batch_size, shuffle=False, num_workers=4, pin_memory=True, pin_memory_device=self.device)
+            self.test_data = DataLoader(test_data, batch_size=self.batch_size, shuffle=False, num_workers=4, pin_memory=True, pin_memory_device=self.device)
 
     @property
     def train_dl(self):

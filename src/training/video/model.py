@@ -19,10 +19,13 @@ class VideoModel(nn.Module):
         self.image_analysis = nn.Sequential(
             nn.Conv2d(3, c_network, 5, stride=2, padding=2),
             GDN(c_network),
+            # nn.Dropout2d(0.2),
             nn.Conv2d(c_network, c_network, 5, stride=2, padding=2),
             GDN(c_network),
+            # nn.Dropout2d(0.2),
             nn.Conv2d(c_network, c_network, 5, stride=2, padding=2),
             GDN(c_network),
+            # nn.Dropout2d(0.2),
             nn.Conv2d(c_network, c_compress, 5, stride=2, padding=2),
         )
 
@@ -33,8 +36,10 @@ class VideoModel(nn.Module):
         self.hyper_analysis = nn.Sequential(
             nn.Conv2d(c_compress, c_network, 3, padding=1),
             nn.ReLU(inplace=True),
+            # nn.Dropout2d(0.2),
             nn.Conv2d(c_network, c_network, 5, stride=2, padding=2),
             nn.ReLU(inplace=True),
+            # nn.Dropout2d(0.2),
             nn.Conv2d(c_network, c_network, 5, stride=2, padding=2),
         )
 
@@ -48,20 +53,27 @@ class VideoModel(nn.Module):
         self.hyper_synthesis = nn.Sequential(
             nn.ConvTranspose2d(c_network, c_network, 5, stride=2, output_padding=(0, 1), padding=2),
             nn.ReLU(inplace=True),
+            # nn.Dropout2d(0.2),
             nn.ConvTranspose2d(c_network, c_network, 5, stride=2, output_padding=1, padding=2),
             nn.ReLU(inplace=True),
+            # nn.Dropout2d(0.2),
             nn.ConvTranspose2d(c_network, c_compress, 3, padding=1),
             nn.ReLU(inplace=True),
+            # nn.Dropout2d(0.2),
         )
 
         # Q, AE, AD
         self.image_bottleneck = GaussianConditional(scale_table=[0.11, 0.22, 0.44, 0.88, 1.76, 3.52, 7.04, 14.08])
-        # self.entropy_parameters = nn.Sequential(
-        #     nn.Conv2d(c_compress, 2*c_compress, 3, padding=1, groups=2),
-        #     nn.ReLU(inplace=True),
-        #     # nn.Conv2d(2*c_compress, 2*c_compress, 3, padding=1),
-        #     # nn.ReLU(inplace=True),
-        # )
+        self.mean_params = nn.Sequential(
+            nn.Conv2d(c_compress, c_compress, 3, padding=1),
+            # nn.Dropout2d(0.2),
+        )
+        self.scale_params = nn.Sequential(
+            nn.Conv2d(c_compress, c_compress, 3, padding=1),
+            nn.ReLU(inplace=True),
+            # nn.Softplus(),
+            # nn.Dropout2d(0.2),
+        )
 
         # g_s
         # (c_compress, 30, 40) -> (c_network, 60, 80)
@@ -71,10 +83,13 @@ class VideoModel(nn.Module):
         self.image_synthesis = nn.Sequential(
             nn.ConvTranspose2d(c_compress, c_network, 5, stride=2, output_padding=1, padding=2),
             GDN(c_network, inverse=True),
+            # nn.Dropout2d(0.2),
             nn.ConvTranspose2d(c_network, c_network, 5, stride=2, output_padding=1, padding=2),
             GDN(c_network, inverse=True),
+            # nn.Dropout2d(0.2),
             nn.ConvTranspose2d(c_network, c_network, 5, stride=2, output_padding=1, padding=2),
             GDN(c_network, inverse=True),
+            # nn.Dropout2d(0.2),
             nn.ConvTranspose2d(c_network, 3, 5, stride=2, output_padding=1, padding=2),
             nn.Sigmoid()
         )
@@ -101,9 +116,6 @@ class VideoModel(nn.Module):
         z_likelihoods : Tensor
             Likelihood of the hyper latent encoding
         '''
-        # Conform raw image data to the expected input format
-        x = x.permute(0, 3, 1, 2)  # 1 x H x W x C -> 1 x C x H x W
-        x = x.float() / 255.0   #      [0, 255] -> [0.0, 1.0]
 
         # Encode latent image from input image
         self.y = self.image_analysis(x)
@@ -118,19 +130,14 @@ class VideoModel(nn.Module):
         self.hyper_params = self.hyper_synthesis(self.z_hat)
 
         # Get the hyper-parameters (mean & std of a Gaussian distribution) from the hyper-prior
-        # sigma_hat, means_hat = torch.chunk(self.entropy_parameters(self.hyper_params), 2, 1)
+        self.means_hat = self.mean_params(self.hyper_params)
+        self.scales_hat = self.scale_params(self.hyper_params)
 
         # Add noise to the latent image (for training)
-        self.y_hat, self.y_likelihoods = self.image_bottleneck(self.y, self.hyper_params, noise_func=noise_func, **kwargs)#sigma_hat, means=means_hat)
+        self.y_hat, self.y_likelihoods = self.image_bottleneck(self.y, self.scales_hat, means=self.means_hat, noise_func=noise_func, **kwargs)
 
         # Decode image from decompressed latent image
         self.x_hat = self.image_synthesis(self.y_hat)
-
-        # Convert the tensor to the expected output format
-        self.x_hat = self.x_hat.permute(0, 2, 3, 1)               # 1 x C x H x W -> 1 x H x W x C
-        min = self.x_hat.min()
-        self.x_hat = (self.x_hat - min) / (self.x_hat.max() - min)     # Normalize to [0, 1]
-        self.x_hat = (self.x_hat * 255).round()                   # [0.0, 1.0] -> [0, 255]
 
         return self.x_hat, self.y_likelihoods, self.z_likelihoods
     

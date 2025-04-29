@@ -1,6 +1,7 @@
 
+import sys
+
 import torch
-from torch.utils.data import DataLoader
 from torch.ao.quantization.quantize_pt2e import convert_pt2e, prepare_pt2e
 
 from executorch.backends.xnnpack.partition.xnnpack_partitioner import XnnpackPartitioner
@@ -18,7 +19,6 @@ from executorch.runtime import Runtime
 
 from .encoder import VideoEncoder
 from .decoder import VideoDecoder
-from .simulate import simulate_transmission
 
 class XNNPackModel:
     '''
@@ -58,33 +58,39 @@ class XNNPackModel:
         Quantize the model using Executorch
     export_xnnpack(model_path, quantize) -> str
         Export the model to XNNPACK format
-    test_export(loader) -> None
-        Test the exported XNNPACK model
+    load_exported_models() -> tuple
+        Load the exported encoder and decoder models
     '''
     def __init__(
         self,
-        ch_network:int,
-        ch_compress:int,
-        enc_model_path:str, 
-        dec_model_path:str, 
-        export_dir:str, 
-        plot_dir:str,
+        encoder:VideoEncoder,
+        decoder:VideoDecoder,
+        c_network:int,
+        c_compress:int,
+        export_dir:str,
+        control_dir:str,
+        remote_dir:str,
         quantize:bool=True
     ):
         self.export_dir = export_dir
-        self.plot_dir = plot_dir
 
-        enc_model = VideoEncoder(ch_network, ch_compress)
-        enc_model.load(enc_model_path)
+        runtime = Runtime.get()
+        verification_error = True
 
-        dec_model = VideoDecoder(ch_network, ch_compress)
-        dec_model.load(dec_model_path)
+        # Prepare the encoder
+        x = torch.randint(0, 256, (480, 640, 3), dtype=torch.uint8)
+        enc_export_path = self.export_xnnpack(encoder, (x,), "img_enc", remote_dir, quantize)
+        enc_program = runtime.load_program(enc_export_path)
+        if verification_error: sys.stdout.write("\033[F\033[K")
+        self.enc_method = enc_program.load_method("forward")
 
-        self.enc_export_path = self.export_xnnpack(enc_model, quantize)
-        self.dec_export_path = self.export_xnnpack(dec_model, quantize)
-
-        self.encode = None
-        self.decode = None
+        # Prepare the decoder
+        z_string = torch.randint(-128, 127, (c_network * 8 * 10,), dtype=torch.int8)
+        y_string = torch.randint(-128, 127, (c_compress * 30 * 40,), dtype=torch.int8)
+        dec_export_path = self.export_xnnpack(decoder, (z_string, y_string), "img_dec", control_dir, quantize)
+        dec_program = runtime.load_program(dec_export_path)
+        if verification_error: sys.stdout.write("\033[F\033[K")
+        self.dec_method = dec_program.load_method("forward")
 
     @staticmethod
     def quantize_xnnpack(model, inputs):
@@ -105,7 +111,7 @@ class XNNPackModel:
         '''
         quantizer = XNNPACKQuantizer()
         operator_config = get_symmetric_quantization_config(
-            is_per_channel=True,
+            is_per_channel=False,
             is_dynamic=False,
         )
         quantizer.set_global(operator_config)
@@ -114,7 +120,7 @@ class XNNPackModel:
         m = convert_pt2e(m)
         return m
 
-    def export_xnnpack(self, model:torch.nn.Module, quantize:bool=True):
+    def export_xnnpack(self, model:torch.nn.Module, inputs:tuple[torch.Tensor], name:str, app_dir:str=None, quantize:bool=True) -> str:
         '''
         Transform, lower, and (optionally) quantize the model for XNNPACK backend
 
@@ -157,22 +163,20 @@ class XNNPackModel:
         ```
         '''
         # Load the model
+        device = model.device
         model.eval()
         model.to(torch.device("cpu"))
 
-        # Create a sample input tensor
-        inputs = (torch.randn(1, 480, 640, 3),)
-
         # Create a GraphModule from the model
         export = torch.export.export_for_training(model, inputs, strict=True)
-        model = export.module()
+        module = export.module()
         
         # Quantize the model
         if quantize:
-            model = self.quantize_xnnpack(model, inputs)
-            export = torch.export.export_for_training(model, inputs, strict=True)
+            module = self.quantize_xnnpack(module, inputs)
+            export = torch.export.export_for_training(module, inputs, strict=True)
 
-        # Lower the model, then transform the model to Executorch backend
+        # Transform the model to edge dialect, then lower to the XNNPACK backend
         edge = to_edge_transform_and_lower(           
             export, 
             partitioner=[XnnpackPartitioner()], # Create a partitioner for XNNPACK
@@ -182,33 +186,24 @@ class XNNPackModel:
             )
         )
 
+        # Transform the model to Executorch backend
         exec_prog = edge.to_executorch(config=ExecutorchBackendConfig(extract_delegate_segments=False))
 
-        name = f"{model.__class__.__name__}_XNNPack_{"q8" if quantize else "fp32"}"
-        save_pte_program(exec_prog, name, self.export_dir)  # Save the Executorch program
+        # Put the executable in the application directory
+        if app_dir is not None:
+            save_pte_program(exec_prog, name, app_dir)
+
+        # Save the executable in the export directory
+        name = f"{name}_xnnpack_{"q8" if quantize else "fp32"}"
+        save_pte_program(exec_prog, name, self.export_dir)
+
+        # Move the model back to the original device
+        model.to(device)
 
         return f"{self.export_dir}/{name}.pte"
+    
+    def encoder(self, x:torch.ByteTensor) -> tuple[torch.CharTensor, torch.CharTensor]:
+        return self.enc_method.execute([x])
 
-    def test_export(self, loader:DataLoader):
-        '''
-        Test the exported XNNPACK model
-
-        Parameters
-        ----------
-        loader : DataLoader
-            DataLoader for the test dataset
-        '''
-        # Get the Executorch runtime environment
-        runtime = Runtime.get()
-
-        # Load the exported encoder
-        program = runtime.load_program(self.enc_export_path)
-        encode = program.load_method("forward")
-
-        # Load the exported decoder
-        program = runtime.load_program(self.dec_export_path)
-        decode = program.load_method("forward")
-
-        # Simulate transmission of the data
-        simulate_transmission(loader, encode, decode, self.plot_dir)
-        
+    def decoder(self, z_string:torch.CharTensor, y_string:torch.CharTensor) -> torch.ByteTensor:
+        return self.dec_method.execute((z_string, y_string))[0]

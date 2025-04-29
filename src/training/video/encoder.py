@@ -36,73 +36,12 @@ class VideoEncoder(VideoModel):
     encode(x) -> tuple[ByteTensor, ByteTensor]
         Compress the image from RGB888-encoded ByteTensor
     '''
-    def __init__(self, network_channels: int, compress_channels: int):
+    def __init__(self, network_channels: int, compress_channels: int, device: str = "cpu"):
         super().__init__(network_channels, compress_channels)
-        self.eval()
-        
-    # def encode_hyper(self, x: ByteTensor) -> ByteTensor:
-    #     '''
-    #     Encode the hyper latent
+        self.device = device
+        self.to(device)
 
-    #     The remote device will call this function first to get the quantized hyper-prior latent,
-    #     which can be immediately sent to the control device before the image latent is compressed.
-
-    #     Parameters
-    #     ----------
-    #     x : ByteTensor
-    #         Input image data | *(height, width, channels)*
-
-    #     Returns
-    #     -------
-    #     z_string : ByteTensor
-    #         Quantized hyper-prior latent
-    #     '''
-    #     # Conform the raw image data to the expected input shape
-    #     x = x.permute(2, 0, 1).unsqueeze(0)
-        
-    #     # Convert the image data to a float tensor and normalize it
-    #     x = x.float() / 255.0
-
-    #     # Encode latent image from input image
-    #     self.y = self.image_analysis(x)
-
-    #     # Encode latent hyper-prior from latent image
-    #     self.z_hat = self.hyper_analysis(self.y)
-
-    #     # Quantize the latent hyper-prior
-    #     z_string = self.hyper_bottleneck.compress(self.z_hat)[0]
-
-    #     return z_string
-    
-    # def encode_image(self) -> ByteTensor:
-    #     '''
-    #     Encode the image latent
-
-    #     After the compressed hyper latent is sent to the control device,
-    #     the remote device will call this function to get the compressed image latent,
-    #     which is then sent to the control device for the final reconstruction.
-
-    #     Returns
-    #     -------
-    #     y_string : ByteTensor 
-    #         Quantized image latent
-    #     '''
-    #     # Decode hyper-prior from latent hyper-prior
-    #     hyper_params = self.hyper_synthesis(self.z_hat)
-
-    #     # Get the hyper-parameters (mean & std of a Gaussian distribution) from the hyper-prior
-    #     sigma_hat, means_hat = self.entropy_parameters(hyper_params).chunk(2, 1)
-        
-    #     # Build the scale indexes for quantization
-    #     indexes = self.image_bottleneck.build_indexes(sigma_hat)
-
-    #     # Quantize the latent image with the scale indexes and hyper-prior means
-    #     y_string = self.image_bottleneck.compress(self.y, indexes, means_hat)[0]
-        
-    #     return y_string
-    
-
-    def forward(self, x: ByteTensor) -> tuple[ByteTensor, ByteTensor]:
+    def forward(self, x: ByteTensor) -> tuple[torch.CharTensor, torch.CharTensor]:
         '''
         Compress the image from RGB888-encoded input
 
@@ -119,28 +58,25 @@ class VideoEncoder(VideoModel):
             Quantized hyper-prior latent
         '''
         # Conform raw image data to the expected format
-        x = x.permute(0, 3, 1, 2)   # 1 x H x W x C -> 1 x C x H x W
-        x = x.float() / 255.0       #      [0, 255] -> [0.0, 1.0]
+        x = x.reshape(1, *x.shape[-3:]).permute(0, 3, 1, 2)
+        x = x.float() / 255.0
 
         # Encode latent image from input image
         y = self.image_analysis(x)
 
         # Encode latent hyper-prior from latent image
-        z_hat = self.hyper_analysis(y)
+        z = self.hyper_analysis(y)
 
         # Quantize the latent hyper-prior
-        z_string = self.hyper_bottleneck.compress(z_hat)[0]
+        z_string = self.hyper_bottleneck.quantize(z)
 
         # Decode hyper-prior from latent hyper-prior
-        hyper_params = self.hyper_synthesis(z_hat)
+        hyper_params = self.hyper_synthesis(z)
 
         # Get the hyper-parameters (mean & std of a Gaussian distribution) from the hyper-prior
-        # sigma_hat, means_hat = self.entropy_parameters(hyper_params).chunk(2, 1)
-        
-        # Build the scale indexes for quantization
-        indexes = self.image_bottleneck.build_indexes(hyper_params)#sigma_hat)
+        means_hat = self.mean_params(hyper_params)
 
         # Quantize the latent image with the scale indexes and hyper-prior means
-        y_string = self.image_bottleneck.compress(y, indexes)[0]#, means_hat)[0]
+        y_string = self.image_bottleneck.quantize(y, means=means_hat)
         
         return z_string, y_string

@@ -264,7 +264,7 @@ pyrightconfig.json
 src/training/_scratch/
 src/training/datasets/
 src/training/plots/
-src/models/
+src/training/models/
 src/exports/
 src/executorch/
 src/libtorch/

@@ -22,8 +22,12 @@ def tensor_to_image(x: torch.FloatTensor) -> np.ndarray:
     ndarray[uint8]
         The byte image of shape *(H, W, C)*.
     '''
-    x = x.squeeze(0)#.permute(1, 2, 0)   # 1 x C x H x W  -> H x W x C
-    x = x.detach().cpu()                # Copy to CPU
-    x = x.numpy().astype('uint8')       # Convert to byte array
+    if x.dim() == 4:
+        assert x.size(0) == 1, "Batched input tensor must only have one image."
+        x = x.squeeze(0)            # (1, C, H, W) -> (C, H, W)
+    x = x.permute(1, 2, 0)          # (C, H, W) -> (H, W, C)
+    x = torch.round(x * 255.0)      # Scale to [0, 255]
+    x = x.detach().cpu()            # Copy to CPU
+    x = x.numpy().astype('uint8')   # Convert to byte array
     return x
     

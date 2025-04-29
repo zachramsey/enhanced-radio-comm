@@ -186,65 +186,51 @@ class EntropyBottleneck(nn.Module):
                 logits = logits + torch.tanh(factor) * torch.tanh(logits)
         return logits
     
-    # @staticmethod
-    # def quantize(x: Tensor) -> Tensor:
-    #     # Quantize input from continuous range to discrete range [-128.0, 127.0]
-    #     x_abs = x.abs()
-    #     pos_mask = (x >= 0).float()
-    #     neg_mask = (x < 0).float()
-    #     scale = (
-    #         127.0 / (torch.amax(x_abs * pos_mask, dim=(1,2,3), keepdim=True) + 1e-12) * pos_mask +
-    #         128.0 / (torch.amax(x_abs * neg_mask, dim=(1,2,3), keepdim=True) + 1e-12) * neg_mask
-    #     )
-    #     return torch.round(x * scale)
-        
-    # @staticmethod
-    # def dequantize(x: Tensor) -> Tensor:
-    #     # Dequantize input range [-128.0, 127.0] to continuous range [-1.0, 1.0]
-    #     return x * ((x >= 0).float() / 127.0 + (x < 0).float() / 128.0)
-
-    @staticmethod
-    def quantize(x: Tensor) -> Tensor:
-        # Quantize positive continuous input to discrete range [0, 65535.0]
-        x_min = torch.amin(x, dim=(1,2,3), keepdim=True)
-        x_max = torch.amax(x, dim=(1,2,3), keepdim=True)
-        return torch.round((x - x_min) * 65535.0 / (x_max - x_min + 1e-12))
+    def quantize(self, x: Tensor) -> Tensor:
+        means = self.quantiles[:, :, 1:2].expand(1, -1, -1, -1)
+        x = (x - means).clamp(-128.0, 127.0).round().char().flatten().contiguous()
+        return x
     
-    @staticmethod
-    def dequantize(x: Tensor) -> Tensor:
-        # Dequantize discrete input range [0, 65535.0] to continuous range [0.0, 1.0]
-        return x / 65535.0
+    def dequantize(self, x: Tensor, size: tuple[int]) -> Tensor:
+        means = self.quantiles[:, :, 1:2]
+        x = x.reshape(*size)
+        x = (x + means).expand(1, -1, -1, -1)
+        return x
 
     def forward(self, x: Tensor, noise_func = None, **kwargs) -> Tuple[Tensor, Tensor]:
+        # if noise_func is not None:
+        #     x = x + (noise_func(x, **kwargs) - x).detach()
+        # else:
+        #     if quantize == 1:
+        #         return self.quantize(x), None
+        #     elif quantize == -1:
+        #         return self.dequantize(x, size), None
+        #     else:
+        #         quantiles = self.quantiles[:, :, 1:2]
+        #         x = torch.round(x - quantiles) + quantiles
 
-        # x from B x C x ... to C x B x ...
-        perm = torch.cat((
-            torch.tensor([1, 0], dtype=torch.long, device=x.device),
-            torch.arange(2, x.ndim, dtype=torch.long, device=x.device),
-        ))
-        inv_perm = perm
-
-        x = self.quantize(x)
+        means = self.quantiles[:, :, 1:2].expand(1, -1, -1, -1)
+        x = (x - means).clamp_(-128.0, 127.0).round_()
         if noise_func is not None:
-            x = x + (noise_func(x, **kwargs) - x).detach()
-        x = self.dequantize(x)
+            # x += torch.empty_like(x).uniform_(-10.0, 10.0).clamp_(-128.0, 127.0).round_()
+            x = x + (noise_func(x, **kwargs).clamp_(-128.0, 127.0).round_() - x).detach()
+        x += means
 
-        x = x.permute(*perm).contiguous()
+        x = x.permute(1, 0, 2, 3).contiguous()
         shape = x.size()
         x = x.reshape(x.size(0), 1, -1)
 
         # Compute likelihood
-        if not torch.jit.is_scripting():
-            lower = self._logits_cumulative(x - 0.5, False)
-            upper = self._logits_cumulative(x + 0.5, False)
-            likelihood = torch.sigmoid(upper) - torch.sigmoid(lower)
+        lower = self._logits_cumulative(x - 0.5, False)
+        upper = self._logits_cumulative(x + 0.5, False)
+        likelihood = torch.sigmoid(upper) - torch.sigmoid(lower)
 
-            if self.use_likelihood_bound:
-                likelihood = self.likelihood_lower_bound(likelihood)
+        if self.use_likelihood_bound:
+            likelihood = self.likelihood_lower_bound(likelihood)
 
         # Convert to input shape
-        x = x.reshape(shape).permute(*inv_perm).contiguous()
-        likelihood = likelihood.reshape(shape).permute(*inv_perm).contiguous()
+        x = x.reshape(shape).permute(1, 0, 2, 3).contiguous()
+        likelihood = likelihood.reshape(shape).permute(1, 0, 2, 3).contiguous()
 
         return x, likelihood
         
@@ -412,23 +398,34 @@ class GaussianConditional(nn.Module):
         self._offset = -pmf_center
         self._cdf_length = pmf_length + 2
 
-    @staticmethod
-    def quantize(x: Tensor) -> Tensor:
-        # Quantize positive continuous input to discrete range [0, 65535.0]
-        x_min = torch.amin(x, dim=(1,2,3), keepdim=True)
-        x_max = torch.amax(x, dim=(1,2,3), keepdim=True)
-        return torch.round((x - x_min) * 65535.0 / (x_max - x_min + 1e-12))
+    def quantize(self, x: Tensor, means: Optional[Tensor] = None) -> Tensor:
+        if means is not None:
+            x = x - means
+        x = x.round().clamp(-128.0, 127.0).char().flatten().contiguous()
+        return x
     
-    @staticmethod
-    def dequantize(x: Tensor) -> Tensor:
-        # Dequantize discrete input range [0, 65535.0] to continuous range [0.0, 1.0]
-        return x / 65535.0
+    def dequantize(self, x: Tensor, size: tuple[int], means: Optional[Tensor] = None) -> Tensor:
+        x = x.reshape(*size).unsqueeze(0)
+        if means is not None:
+            x = x + means
+        return x
     
     def forward(self, x: Tensor, scales: Tensor, means: Optional[Tensor] = None, noise_func = None, **kwargs) -> Tuple[Tensor, Tensor]:
-        x = self.quantize(x)
+        # if noise_func is not None:
+        #     x = x + (noise_func(x, **kwargs) - x).detach()
+        # else:
+        #     if quantize == 1:
+        #         return self.quantize(x, means), None
+        #     elif quantize == -1:
+        #         return self.dequantize(x, size, means), None
+        #     else:
+        #         x = torch.round(x - means) + means
+
+        x = (x - means).clamp_(-128.0, 127.0).round_()
         if noise_func is not None:
-            x = x + (noise_func(x, **kwargs) - x).detach()
-        x = self.dequantize(x)
+            # x += torch.empty_like(x).uniform_(-10.0, 10.0).clamp_(-128.0, 127.0).round_()
+            x = x + (noise_func(x, **kwargs).clamp_(-128.0, 127.0).round_() - x).detach()
+        x += means
 
         # Compute likelihood
         values = x if means is None else x - means
