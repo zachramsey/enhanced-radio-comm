@@ -17,44 +17,44 @@ using namespace ::executorch::extension;
 /* --- Private implementation of ControlRunner --- */
 
 struct ControlRunnerImpl {
-    Module videoDecoder;    // Module for video processing
+    Module videoDecoder;            // Module for video processing
 
-    int latHypH;            // Height of the latent hyper
-    int latHypW;            // Width of the latent hyper
-    int latHypC;            // Number of channels in the latent hyper
-    int latHypSize;         // Size of the latent hyper
+    std::vector<int> imgShape;      // Shape of the latent hyper
+    std::vector<int> latHypShape;   // Shape of the latent hyper
+    std::vector<int> latImgShape;   // Shape of the latent image
 
-    int latImgH;            // Height of the latent image
-    int latImgW;            // Width of the latent image
-    int latImgC;            // Number of channels in the latent image
-    int latImgSize;         // Size of the latent image
+    int imgSize;                    // Size of the input image
+    int latHypSize;                 // Size of the latent hyper
+    int latImgSize;                 // Size of the latent image
 
     // Initialize the RemoteRunner
     ControlRunnerImpl(
         const std::string& videoModelPath,  // Path to the exported video model
-        int latHyperHeight,                 // Height of the latent hyper
-        int latHyperWidth,                  // Width of the latent hyper
-        int latHyperChannel,                // Number of channels in the latent hyper
-        int latImageHeight,                 // Height of the latent image
-        int latImageWidth,                  // Width of the latent image
-        int latImageChannel                 // Number of channels in the latent image
-    ) : videoDecoder(videoModelPath),
-        latHypH(latHyperHeight),
-        latHypW(latHyperWidth),
-        latHypC(latHyperChannel),
-        latImgH(latImageHeight),
-        latImgW(latImageWidth),
-        latImgC(latImageChannel)
-    {
+        const int imgH,                           // Height of the input image
+        const int imgW,                           // Width of the input image
+        const int imgC,                           // Number of channels in the input image
+        const int latHypH,                        // Height of the latent hyper
+        const int latHypW,                        // Width of the latent hyper
+        const int latHypC,                        // Number of channels in the latent hyper
+        const int latImgH,                        // Height of the latent image
+        const int latImgW,                        // Width of the latent image
+        const int latImgC                         // Number of channels in the latent image
+    ) : videoDecoder(videoModelPath) {
         // Load the video model
         const auto model_error = this->videoDecoder.load();
 
         // Load the decode method from the video model
         const auto method_error = this->videoDecoder.load_forward();
 
-        // Calculate the number of bytes in the latent hyper and latent image
-        this->latHypSize = latHyperHeight * latHyperWidth * latHyperChannel;
-        this->latImgSize = latImageHeight * latImageWidth * latImageChannel;
+        // Set the shapes for the input image, output latent hyper, and output latent image
+        this->imgShape = {imgH, imgW, imgC};
+        this->latHypShape = {latHypH, latHypW, latHypC};
+        this->latImgShape = {latImgH, latImgW, latImgC};
+
+        // Calculate the number of bytes in the input image, latent hyper, and latent image
+        this->imgSize = imgH * imgW * imgC;
+        this->latHypSize = latHypH * latHypW * latHypC;
+        this->latImgSize = latImgH * latImgW * latImgC;
     }
 
     // Decompress latent data using the video decoder model
@@ -64,19 +64,25 @@ struct ControlRunnerImpl {
         std::vector<uint8_t> latHypVector(data.begin(), data.begin() + this->latHypSize);
         std::vector<uint8_t> latImgVector(data.begin() + this->latHypSize, data.begin() + this->latHypSize + this->latImgSize);
 
-        // Create tensor pointers for the latent hyper and latent image
-        auto latHypTensor = make_tensor_ptr({this->latHypH, this->latHypW, this->latHypC}, latHypVector, ScalarType::Byte);
-        auto latImgTensor = make_tensor_ptr({this->latImgH, this->latImgW, this->latImgC}, latImgVector, ScalarType::Byte);
+        // Set the model inputs
+        auto latHypTensor = make_tensor_ptr(this->latHypShape, latHypVector, ScalarType::Byte);
+        this->videoDecoder.set_input("forward", latHypTensor, 0);
+
+        auto latImgTensor = make_tensor_ptr(this->latImgShape, latImgVector, ScalarType::Byte);
+        this->videoDecoder.set_input("forward", latImgTensor, 1);
+
+        // Set the model output
+        auto imgTensor = make_tensor_ptr(this->imgShape, ScalarType::Byte);
+        this->videoDecoder.set_output("forward", imgTensor, 0);
 
         // Run the video model
-        const auto result = this->videoDecoder.execute("forward", {latHypTensor, latImgTensor});
+        const auto result = this->videoDecoder.execute("forward");
 
         // Check if the model ran successfully
         if (result.ok()) {
-            // Get the output tensor and convert it to a vector
-            const auto& output = result.get().at(0).toTensor();
-            const uint8_t* outPtr = output.const_data_ptr<uint8_t>();
-            std::vector<uint8_t> outVector(outPtr, outPtr + output.numel());
+            // Get the output tensor
+            const uint8_t* imgPtr = imgTensor->const_data_ptr<uint8_t>();
+            std::vector<uint8_t> outVector(imgPtr, imgPtr + this->imgSize);
             return outVector;
         } else {
             return {};
@@ -90,20 +96,26 @@ struct ControlRunnerImpl {
 // Constructor for ControlRunner
 ControlRunner::ControlRunner(
     const std::string& videoModelPath,
-    int latImageHeight,
-    int latImageWidth,
-    int latImageChannel,
-    int latHyperHeight,
-    int latHyperWidth,
-    int latHyperChannel
+    const int imgH,
+    const int imgW,
+    const int imgC,
+    const int latHypH,
+    const int latHypW,
+    const int latHypC,
+    const int latImgH,
+    const int latImgW,
+    const int latImgC
 ) : controlRunnerImpl(std::make_unique<ControlRunnerImpl>(
         videoModelPath,
-        latHyperHeight,
-        latHyperWidth,
-        latHyperChannel,
-        latImageHeight,
-        latImageWidth,
-        latImageChannel
+        imgH,
+        imgW,
+        imgC,
+        latHypH,
+        latHypW,
+        latHypC,
+        latImgH,
+        latImgW,
+        latImgC
     )) {}
 
 // Destructor for ControlRunner

@@ -21,17 +21,28 @@ private:
 public:
     /**
      * Initialize the RemoteRunner
-     * @param videoModelPath Path to the exported video model (.pte file)
-     * @param imageHeight Height of the input image
-     * @param imageWidth Width of the input image
-     * @param imageChannel Number of channels in the input image
-     * @throws std::runtime_error if model loading or initialization fails.
+     * @param modelPath Path to the exported video model (.pte file)
+     * @param imgH      Height of the input image
+     * @param imgW      Width of the input image
+     * @param imgC      Number of channels in the input image
+     * @param latHypH   Height of the latent hyper
+     * @param latHypW   Width of the latent hyper
+     * @param latHypC   Number of channels in the latent hyper
+     * @param latImgH   Height of the latent image
+     * @param latImgW   Width of the latent image
+     * @param latImgC   Number of channels in the latent image
      */
     RemoteRunner(
-        const std::string& videoModelPath,
-        int imageHeight,
-        int imageWidth,
-        int imageChannel
+        const std::string& modelPath,
+        const int imgH,
+        const int imgW,
+        const int imgC,
+        const int latHypH,
+        const int latHypW,
+        const int latHypC,
+        const int latImgH,
+        const int latImgW,
+        const int latImgC 
     );
 
     // Destructor
@@ -49,8 +60,7 @@ public:
 
     /**
      * Compress image data using the video encoder model.
-     * @param data Pointer to input data (image).
-     * The size is assumed to be imgSize bytes.
+     * @param data Pointer to the input image data (RGB888 format).
      * @return A vector containing the compressed image data. Vector might be empty on failure.
      */
     std::vector<uint8_t> encodeImage(const std::vector<uint8_t>& data) const;

@@ -115,6 +115,7 @@ cd ..   # Back to src
 **Build C++ libraries with Executorch runtime:**
 ``` bash
 cmake -B build .
+cmake --build build -j"$(nproc+1)"
 sudo cmake --build build -j"$(nproc+1)" --target install
 cd ..   # Back to root
 ```
