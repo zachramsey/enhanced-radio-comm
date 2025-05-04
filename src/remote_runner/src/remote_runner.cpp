@@ -45,13 +45,10 @@ struct RemoteRunnerImpl {
     }
 
     // Compress image data using the video encoder model
-    std::vector<uint8_t> encodeImageImpl(const uint8_t* dataPtr) {
-
-        // Wrap the data with a vector
-        std::vector<uint8_t> imgVector(dataPtr, dataPtr + this->imgSize);
-
+    std::vector<uint8_t> encodeImageImpl(const std::vector<uint8_t>& data) {
+        
         // Create tensor pointers for the input image
-        auto imgTensor = make_tensor_ptr({1, this->imgH, this->imgW, this->imgC}, std::move(imgVector), ScalarType::Byte);
+        auto imgTensor = make_tensor_ptr({this->imgH, this->imgW, this->imgC}, data, ScalarType::Byte);
 
         // Run the video model
         const auto result = this->videoEncoder.execute("forward", imgTensor);
@@ -95,6 +92,6 @@ RemoteRunner::RemoteRunner(RemoteRunner&&) noexcept = default;
 RemoteRunner& RemoteRunner::operator=(RemoteRunner&&) noexcept = default;
 
 // Compress image data using the video encoder model
-std::vector<uint8_t> RemoteRunner::encodeImage(const uint8_t* data) {
+std::vector<uint8_t> RemoteRunner::encodeImage(const std::vector<uint8_t>& data) const {
     return remoteRunnerImpl->encodeImageImpl(data);
 }

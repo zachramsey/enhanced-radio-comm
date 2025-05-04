@@ -53,5 +53,5 @@ public:
      * The size is assumed to be imgSize bytes.
      * @return A vector containing the compressed image data. Vector might be empty on failure.
      */
-    std::vector<uint8_t> encodeImage(const uint8_t* data);
+    std::vector<uint8_t> encodeImage(const std::vector<uint8_t>& data) const;
 };

@@ -58,14 +58,15 @@ struct ControlRunnerImpl {
     }
 
     // Decompress latent data using the video decoder model
-    std::vector<uint8_t> decodeImageImpl(const uint8_t* dataPtr) { 
-        // Wrap the data with vectors
-        std::vector<uint8_t> latHypVector(dataPtr, dataPtr + this->latHypSize);
-        std::vector<uint8_t> latImgVector(dataPtr + this->latHypSize, dataPtr + this->latHypSize + this->latImgSize);
+    std::vector<uint8_t> decodeImageImpl(const std::vector<uint8_t>& data) {
+        
+        // Split the input data into latent hyper and latent image parts
+        std::vector<uint8_t> latHypVector(data.begin(), data.begin() + this->latHypSize);
+        std::vector<uint8_t> latImgVector(data.begin() + this->latHypSize, data.begin() + this->latHypSize + this->latImgSize);
 
         // Create tensor pointers for the latent hyper and latent image
-        auto latHypTensor = make_tensor_ptr({1, this->latHypH, this->latHypW, this->latHypC}, std::move(latHypVector), ScalarType::Byte);
-        auto latImgTensor = make_tensor_ptr({1, this->latImgH, this->latImgW, this->latImgC}, std::move(latImgVector), ScalarType::Byte);
+        auto latHypTensor = make_tensor_ptr({this->latHypH, this->latHypW, this->latHypC}, latHypVector, ScalarType::Byte);
+        auto latImgTensor = make_tensor_ptr({this->latImgH, this->latImgW, this->latImgC}, latImgVector, ScalarType::Byte);
 
         // Run the video model
         const auto result = this->videoDecoder.execute("forward", {latHypTensor, latImgTensor});
@@ -115,6 +116,6 @@ ControlRunner::ControlRunner(ControlRunner&&) noexcept = default;
 ControlRunner& ControlRunner::operator=(ControlRunner&&) noexcept = default;
 
 // Decompress latent data using the video model
-std::vector<uint8_t> ControlRunner::decodeImage(const uint8_t* data) {
+std::vector<uint8_t> ControlRunner::decodeImage(const std::vector<uint8_t>& data) {
     return this->controlRunnerImpl->decodeImageImpl(data);
 }
