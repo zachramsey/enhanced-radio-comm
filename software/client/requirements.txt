@@ -1,3 +1,0 @@
-# Include here all the development stuff that WONT be shipped with the app
--e .  # this just tells it to install setup.py too
-
