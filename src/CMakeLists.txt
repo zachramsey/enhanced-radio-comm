@@ -1,17 +1,20 @@
-# TopLevelProject/CMakeLists.txt
+# src/CMakeLists.txt
 cmake_minimum_required(VERSION 3.24 FATAL_ERROR)
-project(MyProject CXX)
-
-# --- Set a default install prefix to a user-writable location if not specified ---
-if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
-  set(CMAKE_INSTALL_PREFIX "${CMAKE_BINARY_DIR}/install" CACHE PATH "Default installation path" FORCE)
-endif()
+project(MonkeyComms CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Include GNUInstallDirs for standard installation directories
 include(GNUInstallDirs)
+
+# Include CMake's package config helpers
+include(CMakePackageConfigHelpers)
+
+# --- Set a default install prefix to a user-writable location if not specified ---
+# if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+#   set(CMAKE_INSTALL_PREFIX "$ENV{HOME}/.local" CACHE PATH "Default install prefix" FORCE)
+# endif()
 
 # --- Set the default build type if not specified ---
 if(NOT CMAKE_BUILD_TYPE)
@@ -31,22 +34,17 @@ message(STATUS "Adding executorch subdirectory...")
 add_subdirectory(executorch) # Builds ET *once*
 
 # --- Configure ControlRunner and RemoteRunner ---
-option(BUILD_CONTROL_RUNNER "Build ControlRunner" ON)
-option(BUILD_REMOTE_RUNNER "Build RemoteRunner" ON)
+option(BUILD_CONTROL_RUNNER "Build control_runner" ON)
+option(BUILD_REMOTE_RUNNER "Build remote_runner" ON)
 
 # --- Add subdirectory for ControlRunner ---
 if(BUILD_CONTROL_RUNNER)
-  message(STATUS "Adding ControlRunner subdirectory...")
-  add_subdirectory(ControlRunner)
+  message(STATUS "Adding control_runner subdirectory...")
+  add_subdirectory(control_runner)
 endif()
 
 # --- Add subdirectory for RemoteRunner ---
 if(BUILD_REMOTE_RUNNER)
-  message(STATUS "Adding RemoteRunner subdirectory...")
-  add_subdirectory(RemoteRunner)
+  message(STATUS "Adding remote_runner subdirectory...")
+  add_subdirectory(remote_runner)
 endif()
-
-# --- Configure installation ---
-set(INSTALL_LIB_DIR "${CMAKE_INSTALL_LIBDIR}" CACHE PATH "Installation directory for libraries")
-set(INSTALL_BIN_DIR "${CMAKE_INSTALL_BINDIR}" CACHE PATH "Installation directory for executables")
-set(INSTALL_INCLUDE_DIR "${CMAKE_INSTALL_INCLUDEDIR}" CACHE PATH "Installation directory for header files")

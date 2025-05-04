@@ -1,4 +1,4 @@
-# ControlRunner/CMakeLists.txt (when used with Top-Level CMake)
+# control_runner/CMakeLists.txt (when used with Top-Level CMake)
 cmake_minimum_required(VERSION 3.18 FATAL_ERROR)
 project(ControlRunner CXX)
 
@@ -15,7 +15,8 @@ add_library(MonkeyComms::ControlRunner ALIAS ControlRunner)
 # PUBLIC includes point to this library's include dir
 # PRIVATE includes for src dir
 # ET includes come from linked targets automatically
-target_include_directories(ControlRunner
+target_include_directories(
+    ControlRunner
     PUBLIC
         $<INSTALL_INTERFACE:include>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -36,9 +37,6 @@ target_link_libraries(
         xnnpack_backend
 )
 
-# --- Installation Rules ---
-include(GNUInstallDirs)
-
 # Install the library
 install(
     TARGETS ControlRunner
@@ -52,11 +50,10 @@ install(
 # Install the headers
 install(
     FILES ${CONTROL_RUNNER_PUBLIC_HEADERS}
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/MonkeyComms
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
 
 # Generate and install CMake package config files
-include(CMakePackageConfigHelpers)
 
 # Version file
 write_basic_package_version_file(
@@ -69,7 +66,7 @@ write_basic_package_version_file(
 configure_package_config_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/cmake/ControlRunnerConfig.cmake.in"
     "${CMAKE_CURRENT_BINARY_DIR}/ControlRunnerConfig.cmake"
-    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/ControlRunner
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/control_runner
 )
 
 # Install the config files
@@ -77,7 +74,7 @@ install(
     FILES
         "${CMAKE_CURRENT_BINARY_DIR}/ControlRunnerConfig.cmake"
         "${CMAKE_CURRENT_BINARY_DIR}/ControlRunnerConfigVersion.cmake"
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/ControlRunner
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/control_runner
 )
 
 # Install the export file
@@ -85,5 +82,5 @@ install(
     EXPORT ControlRunnerTargets
     FILE ControlRunnerTargets.cmake
     NAMESPACE MonkeyComms::
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/ControlRunner
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/control_runner
 )
