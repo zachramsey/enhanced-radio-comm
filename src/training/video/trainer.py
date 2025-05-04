@@ -243,6 +243,7 @@ class VideoModelTrainer:
                 CONTROL_DIR,
                 REMOTE_DIR
             )
+            xnnpack_model.load_methods()
             self.exec_encoder = xnnpack_model.encoder
             self.exec_decoder = xnnpack_model.decoder
         # more backends can be added here

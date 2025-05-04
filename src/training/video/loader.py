@@ -51,47 +51,51 @@ class ImageDataLoader:
             raise ValueError(f"Dataset {dataset} not supported")
 
     def _get_places365(self):
-        self.train_data = datasets.Places365(root=self.dataset_dir, split='train-standard', download=True, transform=self.common_transform)
-        val_test_dataset = datasets.Places365(root=self.dataset_dir, split='val', download=True, transform=self.common_transform)
-        self._split_data(val_test_dataset)
+        print(">>> Loading Places365 dataset")
+        train_data = datasets.Places365(root=self.dataset_dir, split='train-standard', download=True, transform=self.common_transform)
+        # val_test_dataset = datasets.Places365(root=self.dataset_dir, split='val', download=True, transform=self.common_transform)
+        self._filter_size(train_data, "places365", train_data.imgs, train_data.targets, min_size=(640, 480))
+
+        print(">>> Splitting dataset")
+        self._split_data(train_data)
 
     def _get_sun397(self):
         print(">>> Loading SUN397 dataset")
         dataset = datasets.SUN397(root=self.dataset_dir, download=True, transform=self.common_transform)
-        
-        # Remove images smaller than 480x640
-        if os.path.exists(f"{self.dataset_dir}/image_files.pkl") and os.path.exists(f"{self.dataset_dir}/labels.pkl"):
+        self._filter_size(dataset, "sun397", dataset._image_files, dataset._labels, min_size=(640, 480))
+
+        print(">>> Splitting dataset")
+        self._split_data(dataset)
+
+    def _filter_size(self, dataset: Dataset, name: str, image_files: list, labels: list, min_size: tuple = (640, 480)):
+        if os.path.exists(f"{self.dataset_dir}/{name}_image_files.pkl") and os.path.exists(f"{self.dataset_dir}/{name}_labels.pkl"):
             print(">>> Loading existing image files and labels")
-            with open(f"{self.dataset_dir}/image_files.pkl", "rb") as f:
+            with open(f"{self.dataset_dir}/{name}_image_files.pkl", "rb") as f:
                 new_image_files = pickle.load(f)
-            with open(f"{self.dataset_dir}/labels.pkl", "rb") as f:
+            with open(f"{self.dataset_dir}/{name}_labels.pkl", "rb") as f:
                 new_labels = pickle.load(f)
         else:
             new_image_files = []
             new_labels = []
             len_dataset = len(dataset)
+            img_res = f"{min_size[0]}x{min_size[1]}"
             for i in range(len_dataset):
-                if i % 250 == 0:
-                    print(f"Removing images smaller than 480x640: {i}/{len_dataset}", end="\r")
-                image_file = dataset._image_files[i]
-                image = PIL.Image.open(image_file).convert("RGB")
-                if image.size[0] >= 640 and image.size[1] >= 480:
-                    new_image_files.append(dataset._image_files[i])
-                    new_labels.append(dataset._labels[i])
-            print(f"\nRemoved {len_dataset - len(new_image_files)} images smaller than 480x640")
+                if i % 250 == 0: print(f"Removing images smaller than {img_res}: {i}/{len_dataset}", end="\r")
+                image_file = image_files[i]
+                image = PIL.Image.open(image_file[0] if isinstance(image_file, tuple) else image_file).convert("RGB")
+                if image.size[0] >= min_size[0] and image.size[1] >= min_size[1]:
+                    new_image_files.append(image_file)
+                    new_labels.append(labels[i])
+            print(f"\nRemoved {len_dataset - len(new_image_files)} images smaller than {img_res}")
 
             print(">>> Saving image files and labels")
-            with open(f"{self.dataset_dir}/image_files.pkl", "wb") as f:
+            with open(f"{self.dataset_dir}/{name}_image_files.pkl", "wb") as f:
                 pickle.dump(new_image_files, f)
-            with open(f"{self.dataset_dir}/labels.pkl", "wb") as f:
+            with open(f"{self.dataset_dir}/{name}_labels.pkl", "wb") as f:
                 pickle.dump(new_labels, f)
 
-        ## Update dataset with new image files and labels
-        dataset._image_files = new_image_files
-        dataset._labels = new_labels
-
-        print(">>> Splitting dataset")
-        self._split_data(dataset)
+        image_files = new_image_files
+        labels = new_labels
 
     def _split_data(self, dataset: Dataset):
         n_rem = len(dataset)

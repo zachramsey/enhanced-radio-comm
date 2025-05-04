@@ -1,0 +1,8 @@
+training/_scratch/
+training/datasets/
+training/plots/
+training/models/
+exports/
+executorch/
+libtorch/
+build/

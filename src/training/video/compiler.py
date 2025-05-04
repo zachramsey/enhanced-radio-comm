@@ -74,23 +74,16 @@ class XNNPackModel:
     ):
         self.export_dir = export_dir
 
-        runtime = Runtime.get()
-        verification_error = True
-
         # Prepare the encoder
         x = torch.randint(0, 256, (480, 640, 3), dtype=torch.uint8)
-        enc_export_path = self.export_xnnpack(encoder, (x,), "img_enc", remote_dir, quantize)
-        enc_program = runtime.load_program(enc_export_path)
-        if verification_error: sys.stdout.write("\033[F\033[K")
-        self.enc_method = enc_program.load_method("forward")
+        self.enc_export_path = self.export_xnnpack(encoder, (x,), "img_enc", remote_dir, quantize)
+        self.enc_method = None
 
         # Prepare the decoder
         z_string = torch.randint(-128, 127, (c_network * 8 * 10,), dtype=torch.int8)
         y_string = torch.randint(-128, 127, (c_compress * 30 * 40,), dtype=torch.int8)
-        dec_export_path = self.export_xnnpack(decoder, (z_string, y_string), "img_dec", control_dir, quantize)
-        dec_program = runtime.load_program(dec_export_path)
-        if verification_error: sys.stdout.write("\033[F\033[K")
-        self.dec_method = dec_program.load_method("forward")
+        self.dec_export_path = self.export_xnnpack(decoder, (z_string, y_string), "img_dec", control_dir, quantize)
+        self.dec_method = None
 
     @staticmethod
     def quantize_xnnpack(model, inputs):
@@ -189,18 +182,36 @@ class XNNPackModel:
         # Transform the model to Executorch backend
         exec_prog = edge.to_executorch(config=ExecutorchBackendConfig(extract_delegate_segments=False))
 
+        # Print the model graph
+        # print(exec_prog.dump_executorch_program(verbose=True))
+
+        # Set the file name for the exported model
+        name = f"{name}_xnnpack_{"q8" if quantize else "fp32"}"
+
         # Put the executable in the application directory
         if app_dir is not None:
             save_pte_program(exec_prog, name, app_dir)
 
         # Save the executable in the export directory
-        name = f"{name}_xnnpack_{"q8" if quantize else "fp32"}"
-        save_pte_program(exec_prog, name, self.export_dir)
+        if self.export_dir is not None:
+            save_pte_program(exec_prog, name, self.export_dir)
 
         # Move the model back to the original device
         model.to(device)
 
         return f"{self.export_dir}/{name}.pte"
+
+    def load_methods(self):
+        runtime = Runtime.get()
+        verification_error = True
+        
+        enc_program = runtime.load_program(self.enc_export_path)
+        if verification_error: sys.stdout.write("\033[F\033[K")
+        self.enc_method = enc_program.load_method("forward")
+
+        dec_program = runtime.load_program(self.dec_export_path)
+        if verification_error: sys.stdout.write("\033[F\033[K")
+        self.dec_method = dec_program.load_method("forward")
     
     def encoder(self, x:torch.ByteTensor) -> tuple[torch.CharTensor, torch.CharTensor]:
         return self.enc_method.execute([x])

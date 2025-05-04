@@ -33,7 +33,7 @@ CHECKPOINT_PATH = os.path.join(MODEL_DIR, model_path) if load_model else None
 
 # Model export settings
 EXPORT_DIR = "src/exports"
-CONTROL_DIR = "src/control"
-REMOTE_DIR = "src/remote"
+CONTROL_DIR = "src/control/src/pte"
+REMOTE_DIR = "src/remote/src/pte"
 BACKEND = "xnnpack"
 EXPORT_FREQ = 10

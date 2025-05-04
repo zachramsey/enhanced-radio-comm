@@ -261,14 +261,6 @@ pyrightconfig.json
 # !.vscode/extensions.json
 # !.vscode/*.code-snippets
 
-src/training/_scratch/
-src/training/datasets/
-src/training/plots/
-src/training/models/
-src/exports/
-src/executorch/
-src/libtorch/
-
 # Local History for Visual Studio Code
 .history/
 
