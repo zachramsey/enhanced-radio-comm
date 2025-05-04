@@ -1,7 +1,0 @@
-{
-  "port": 5000,
-  "udp_port": 8888,
-  "auto_launch": true,
-  "server_ip": "172.23.50.188",
-  "buffer_size": 10
-}
