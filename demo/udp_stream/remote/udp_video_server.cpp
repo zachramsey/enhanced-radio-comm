@@ -18,7 +18,7 @@ constexpr int DEFAULT_HEIGHT = 480;
 constexpr int DEFAULT_FPS = 30;
 
 // Maximum UDP packet size (increased to reduce number of packets)
-constexpr size_t MAX_PACKET_SIZE = 65000;
+constexpr size_t MAX_PACKET_SIZE = 1400;
 
 // Frame header structure
 struct FrameHeader {
