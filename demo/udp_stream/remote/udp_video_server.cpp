@@ -17,7 +17,7 @@ constexpr int DEFAULT_WIDTH = 640;
 constexpr int DEFAULT_HEIGHT = 480;
 constexpr int DEFAULT_FPS = 30;
 
-// Maximum UDP packet size (slightly less than typical MTU to avoid fragmentation)
+// Maximum UDP packet size (increased to reduce number of packets)
 constexpr size_t MAX_PACKET_SIZE = 1400;
 
 // Frame header structure
@@ -101,6 +101,14 @@ int main(int argc, char* argv[]) {
         std::cerr << "Error setting socket options: " << strerror(errno) << std::endl;
         close(serverSocket);
         return 1;
+    }
+
+    // Increase send buffer size for larger packets
+    int sendBufSize = 16 * 1024 * 1024; // 16 MB
+    if (setsockopt(serverSocket, SOL_SOCKET, SO_SNDBUF, &sendBufSize, sizeof(sendBufSize)) < 0) {
+        std::cerr << "Warning: Could not set send buffer size: " << strerror(errno) << std::endl;
+    } else {
+        std::cout << "Send buffer size set to " << (sendBufSize / 1024 / 1024) << " MB" << std::endl;
     }
 
     // Try to disable UDP checksums for better performance
