@@ -1,6 +1,6 @@
 # control_runner/CMakeLists.txt (when used with Top-Level CMake)
 cmake_minimum_required(VERSION 3.18 FATAL_ERROR)
-project(ControlRunner CXX)
+project(control_runner CXX)
 
 # --- Define Library Sources ---
 set(CONTROL_RUNNER_SOURCES src/control_runner.cpp)
@@ -8,15 +8,15 @@ set(CONTROL_RUNNER_PUBLIC_HEADERS include/control_runner.h)
 
 # --- Define Library Target ---
 # Inherits BUILD_SHARED_LIBS from parent scope
-add_library(ControlRunner SHARED ${CONTROL_RUNNER_SOURCES} ${CONTROL_RUNNER_PUBLIC_HEADERS})
-add_library(MonkeyComms::ControlRunner ALIAS ControlRunner)
+add_library(control_runner SHARED ${CONTROL_RUNNER_SOURCES} ${CONTROL_RUNNER_PUBLIC_HEADERS})
+add_library(MonkeyComms::ControlRunner ALIAS control_runner)
 
 # --- Configure Include Directories ---
 # PUBLIC includes point to this library's include dir
 # PRIVATE includes for src dir
 # ET includes come from linked targets automatically
 target_include_directories(
-    ControlRunner
+    control_runner
     PUBLIC
         $<INSTALL_INTERFACE:include>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -27,7 +27,7 @@ target_include_directories(
 # --- Link Dependencies ---
 # Link against targets built by the parent scope's add_subdirectory(executorch)
 target_link_libraries(
-    ControlRunner
+    control_runner
     PRIVATE 
         executorch
         extension_module_static
@@ -39,8 +39,8 @@ target_link_libraries(
 
 # Install the library
 install(
-    TARGETS ControlRunner
-    EXPORT ControlRunnerTargets
+    TARGETS control_runner
+    EXPORT control_runner-targets
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -57,30 +57,30 @@ install(
 
 # Version file
 write_basic_package_version_file(
-    "ControlRunnerConfigVersion.cmake"
+    "control_runner-config_version.cmake"
     VERSION 1.0.0
     COMPATIBILITY SameMajorVersion
 )
 
 # Config file
 configure_package_config_file(
-    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/ControlRunnerConfig.cmake.in"
-    "${CMAKE_CURRENT_BINARY_DIR}/ControlRunnerConfig.cmake"
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/control_runner-config.cmake.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/control_runner-config.cmake"
     INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/control_runner
 )
 
 # Install the config files
 install(
     FILES
-        "${CMAKE_CURRENT_BINARY_DIR}/ControlRunnerConfig.cmake"
-        "${CMAKE_CURRENT_BINARY_DIR}/ControlRunnerConfigVersion.cmake"
+        "${CMAKE_CURRENT_BINARY_DIR}/control_runner-config.cmake"
+        "${CMAKE_CURRENT_BINARY_DIR}/control_runner-config_version.cmake"
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/control_runner
 )
 
 # Install the export file
 install(
-    EXPORT ControlRunnerTargets
-    FILE ControlRunnerTargets.cmake
+    EXPORT control_runner-targets
+    FILE control_runner-targets.cmake
     NAMESPACE MonkeyComms::
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/control_runner
 )

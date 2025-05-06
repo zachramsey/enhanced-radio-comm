@@ -26,7 +26,7 @@ DISTORTION_LAMBDA = 0.002
 EVAL_FREQ = 5
 
 # Model checkpoint settings
-load_model = False
+load_model = True
 model_path = "250428_141734/VideoModel_1050.pth"
 MODEL_DIR = "src/training/models"
 CHECKPOINT_PATH = os.path.join(MODEL_DIR, model_path) if load_model else None

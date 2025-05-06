@@ -105,19 +105,21 @@ git clone --branch release/0.6 https://github.com/pytorch/executorch.git
 
 # Update Executorch submodules
 cd executorch
-git submodule sync && git submodule update --init
+git submodule sync
+git submodule update --init
+
+# Install Executorch requirements
+./install_requirements.sh
+cd ../../
 
 # Install Executorch
-./install_executorch.sh
-cd ..   # Back to src
+# ./install_executorch.sh
 ```
 
 **Build C++ libraries with Executorch runtime:**
 ``` bash
 cmake -B build .
-cmake --build build -j"$(nproc+1)"
-sudo cmake --build build -j"$(nproc+1)" --target install
-cd ..   # Back to root
+cmake --build build -j"$(nproc+1)" --target install
 ```
 
 ### Setting up PyTorch training environment

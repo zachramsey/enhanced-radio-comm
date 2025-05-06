@@ -63,5 +63,5 @@ public:
      * @param data Pointer to the input image data (RGB888 format).
      * @return A vector containing the compressed image data. Vector might be empty on failure.
      */
-    std::vector<uint8_t> encodeImage(const std::vector<uint8_t>& data) const;
+    std::vector<int8_t> encodeImage(const std::vector<uint8_t>& data) const;
 };

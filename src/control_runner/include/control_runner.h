@@ -64,5 +64,5 @@ public:
      * The size is assumed to be latHyperSize + latImgSize bytes.
      * @return A vector containing the decompressed image data. Vector might be empty on failure.
      */
-    std::vector<uint8_t> decodeImage(const std::vector<uint8_t>& data);
+    std::vector<uint8_t> decodeImage(const std::vector<int8_t>& data);
 };

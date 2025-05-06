@@ -272,4 +272,7 @@ pyrightconfig.json
 .history
 .ionide
 
+# New
+libmonkeycomms/
+
 # End of https://www.toptal.com/developers/gitignore/api/visualstudiocode,c,c++,python,platformio

@@ -36,9 +36,10 @@ const std::map<std::string, std::list<int>> latChannels = {
 
 const std::string IMAGE_PATH = "test_image.png";
 const std::string OUTPUT_PATH = "output_image.png";
-const std::string PTE_TYPE = "small_q8";
+const std::string PTE_TYPE = "small_f32";
 
 
+/* --- Load a PNG image and convert it to RGB888 format --- */
 std::vector<uint8_t> png_to_rgb888(const std::string& filename, int& width, int& height) {
     FILE *fp = fopen(filename.c_str(), "rb");
     if (!fp) {
@@ -124,26 +125,90 @@ std::vector<uint8_t> png_to_rgb888(const std::string& filename, int& width, int&
 }
 
 
+/* --- Convert RGB888 data to PNG format and save it --- */
+void rgb888_to_png(const std::string& filename, const std::vector<uint8_t>& rgb_data, int width, int height) {
+    FILE *fp = fopen(filename.c_str(), "wb");
+    if (!fp) {
+        std::cerr << "Error: Could not open file " << filename << std::endl;
+        return;
+    }
+
+    png_structp png_ptr = png_create_write_struct(PNG_LIBPNG_VER_STRING, nullptr, nullptr, nullptr);
+    if (!png_ptr) {
+        fclose(fp);
+        std::cerr << "Error: png_create_write_struct failed" << std::endl;
+        return;
+    }
+
+    png_infop info_ptr = png_create_info_struct(png_ptr);
+    if (!info_ptr) {
+        fclose(fp);
+        png_destroy_write_struct(&png_ptr, nullptr);
+        std::cerr << "Error: png_create_info_struct failed" << std::endl;
+        return;
+    }
+
+    if (setjmp(png_jmpbuf(png_ptr))) {
+        fclose(fp);
+        png_destroy_write_struct(&png_ptr, &info_ptr);
+        std::cerr << "Error: Error during png write" << std::endl;
+        return;
+    }
+
+    png_init_io(png_ptr, fp);
+    png_set_IHDR(png_ptr, info_ptr, width, height, 8, PNG_COLOR_TYPE_RGB, PNG_INTERLACE_NONE,
+                 PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
+
+    png_write_info(png_ptr, info_ptr);
+
+    std::vector<png_bytep> row_pointers(height);
+    for (int i = 0; i < height; ++i) {
+        row_pointers[i] = (png_bytep)&rgb_data[i * width * 3];
+    }
+
+    png_write_image(png_ptr, row_pointers.data());
+    png_write_end(png_ptr, nullptr);
+
+    fclose(fp);
+    png_destroy_write_struct(&png_ptr, &info_ptr);
+}
+
+
+/* --- Main function --- */
 int main() {
-    // Load the image
-    std::vector<uint8_t> imageData = png_to_rgb888(IMAGE_PATH, width, height);
 
     // Create the remote runner
-    RemoteRunner remoteRunner(remotePTE.at(PTE_TYPE), height, width, 3);
+    RemoteRunner remoteRunner(
+        remotePTE.at(PTE_TYPE),
+        height, width, 3,
+        latHypH, latHypW, latChannels.at(PTE_TYPE).front(),
+        latImgH, latImgW, latChannels.at(PTE_TYPE).back()
+    );
 
     // Create the control runner
-    ControlRunner controlRunner(controlPTE.at(PTE_TYPE),
-                                latHypH, latHypW, latChannels.at(PTE_TYPE).front(),
-                                latImgH, latImgW, latChannels.at(PTE_TYPE).back());
+    ControlRunner controlRunner(
+        controlPTE.at(PTE_TYPE),
+        height, width, 3,
+        latHypH, latHypW, latChannels.at(PTE_TYPE).front(),
+        latImgH, latImgW, latChannels.at(PTE_TYPE).back()
+    );
+
+    // Load the image
+    const std::vector<uint8_t> imageData = png_to_rgb888(IMAGE_PATH, width, height);
+
+    printf("Image loaded: %d x %d\n", width, height);
+
+    rgb888_to_png(OUTPUT_PATH, imageData, width, height);
+
+    printf("Image saved: %s\n", OUTPUT_PATH.c_str());
 
     // Compress the image data
-    std::vector<uint8_t> compressedData = remoteRunner.encodeImage(imageData);
-
-    if (compressedData.empty()) {
-        std::cerr << "Error: Compression failed" << std::endl;
-        return 1;
-    }
+    std::vector<int8_t> compressedData = remoteRunner.encodeImage(imageData);
 
     // Decompress the image data
     std::vector<uint8_t> decompressedData = controlRunner.decodeImage(compressedData);
+
+    // Save the reconstructed image
+    rgb888_to_png(OUTPUT_PATH, decompressedData, width, height);
+    std::cout << "Image processing completed. Output saved to " << OUTPUT_PATH << std::endl;
 }

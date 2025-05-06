@@ -55,7 +55,7 @@ struct RemoteRunnerImpl {
     }
 
     // Compress image data using the video encoder model
-    std::vector<uint8_t> encodeImageImpl(const std::vector<uint8_t>& data) {
+    std::vector<int8_t> encodeImageImpl(const std::vector<uint8_t>& data) {
         
         // Set the model input
         auto inputTensor = make_tensor_ptr(this->imgShape, data, ScalarType::Byte);
@@ -65,7 +65,7 @@ struct RemoteRunnerImpl {
         auto latHypTensor = make_tensor_ptr(this->latHypShape, ScalarType::Byte);
         this->encoder.set_output("forward", latHypTensor, 0);
 
-        auto latImgTensor = make_tensor_ptr(this->latImgShape, ScalarType::Byte);
+        auto latImgTensor = make_tensor_ptr(this->latImgShape, ScalarType::Char);
         this->encoder.set_output("forward", latImgTensor, 1);
 
         // Run the video model
@@ -74,11 +74,11 @@ struct RemoteRunnerImpl {
         // Check if the model ran successfully
         if (result.ok()) {
             // Get location of the latent hyper and latent image tensors
-            const uint8_t* latHypPtr = latHypTensor->const_data_ptr<uint8_t>();
-            const uint8_t* latImgPtr = latImgTensor->const_data_ptr<uint8_t>();
+            const int8_t* latHypPtr = latHypTensor->const_data_ptr<int8_t>();
+            const int8_t* latImgPtr = latImgTensor->const_data_ptr<int8_t>();
 
             // Create output vector with the size of latent hyper and latent image
-            std::vector<uint8_t> outVector;
+            std::vector<int8_t> outVector;
             outVector.reserve(this->latHypSize + this->latImgSize);
 
             // Insert the latent hyper and latent image data into the output vector
@@ -121,6 +121,6 @@ RemoteRunner::RemoteRunner(RemoteRunner&&) noexcept = default;
 RemoteRunner& RemoteRunner::operator=(RemoteRunner&&) noexcept = default;
 
 // Compress image data using the video encoder model
-std::vector<uint8_t> RemoteRunner::encodeImage(const std::vector<uint8_t>& data) const {
+std::vector<int8_t> RemoteRunner::encodeImage(const std::vector<uint8_t>& data) const {
     return remoteRunnerImpl->encodeImageImpl(data);
 }

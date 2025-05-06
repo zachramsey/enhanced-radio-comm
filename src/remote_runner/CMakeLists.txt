@@ -1,6 +1,6 @@
-# remote_runner/CMakeLists.txt (when used with Top-Level CMake)
+# remote_runner/CMakeLists.txt
 cmake_minimum_required(VERSION 3.18 FATAL_ERROR)
-project(RemoteRunner CXX)
+project(remote_runner CXX)
 
 # --- Define Library Sources ---
 set(REMOTE_RUNNER_SOURCES src/remote_runner.cpp)
@@ -8,15 +8,15 @@ set(REMOTE_RUNNER_PUBLIC_HEADERS include/remote_runner.h)
 
 # --- Define Library Target ---
 # Inherits BUILD_SHARED_LIBS from parent scope
-add_library(RemoteRunner SHARED ${REMOTE_RUNNER_SOURCES} ${REMOTE_RUNNER_PUBLIC_HEADERS})
-add_library(MonkeyComms::RemoteRunner ALIAS RemoteRunner)
+add_library(remote_runner SHARED ${REMOTE_RUNNER_SOURCES} ${REMOTE_RUNNER_PUBLIC_HEADERS})
+add_library(MonkeyComms::RemoteRunner ALIAS remote_runner)
 
 # --- Configure Include Directories ---
 # PUBLIC includes point to this library's include dir
 # PRIVATE includes for src dir
 # ET includes come from linked targets automatically
 target_include_directories(
-    RemoteRunner
+    remote_runner
     PUBLIC
         $<INSTALL_INTERFACE:include>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -27,7 +27,7 @@ target_include_directories(
 # --- Link Dependencies ---
 # Link against targets built by the parent scope's add_subdirectory(executorch)
 target_link_libraries(
-    RemoteRunner
+    remote_runner
     PRIVATE 
         executorch
         extension_module_static
@@ -39,8 +39,8 @@ target_link_libraries(
 
 # Install the library
 install(
-    TARGETS RemoteRunner
-    EXPORT RemoteRunnerTargets
+    TARGETS remote_runner
+    EXPORT remote_runner-targets
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -57,30 +57,30 @@ install(
 
 # Version file
 write_basic_package_version_file(
-    "RemoteRunnerConfigVersion.cmake"
+    "remote_runner-config_version.cmake"
     VERSION 1.0.0
     COMPATIBILITY SameMajorVersion
 )
 
 # Config file
 configure_package_config_file(
-    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RemoteRunnerConfig.cmake.in"
-    "${CMAKE_CURRENT_BINARY_DIR}/RemoteRunnerConfig.cmake"
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/remote_runner-config.cmake.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/remote_runner-config.cmake"
     INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/remote_runner
 )
 
 # Install the config files
 install(
     FILES
-        "${CMAKE_CURRENT_BINARY_DIR}/RemoteRunnerConfig.cmake"
-        "${CMAKE_CURRENT_BINARY_DIR}/RemoteRunnerConfigVersion.cmake"
+        "${CMAKE_CURRENT_BINARY_DIR}/remote_runner-config.cmake"
+        "${CMAKE_CURRENT_BINARY_DIR}/remote_runner-config_version.cmake"
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/remote_runner
 )
 
 # Install the export file
 install(
-    EXPORT RemoteRunnerTargets
-    FILE RemoteRunnerTargets.cmake
+    EXPORT remote_runner-targets
+    FILE remote_runner-targets.cmake
     NAMESPACE MonkeyComms::
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/remote_runner
 )

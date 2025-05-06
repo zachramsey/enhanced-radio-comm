@@ -58,17 +58,17 @@ struct ControlRunnerImpl {
     }
 
     // Decompress latent data using the video decoder model
-    std::vector<uint8_t> decodeImageImpl(const std::vector<uint8_t>& data) {
+    std::vector<uint8_t> decodeImageImpl(const std::vector<int8_t>& data) {
         
         // Split the input data into latent hyper and latent image parts
-        std::vector<uint8_t> latHypVector(data.begin(), data.begin() + this->latHypSize);
-        std::vector<uint8_t> latImgVector(data.begin() + this->latHypSize, data.begin() + this->latHypSize + this->latImgSize);
+        std::vector<int8_t> latHypVector(data.begin(), data.begin() + this->latHypSize);
+        std::vector<int8_t> latImgVector(data.begin() + this->latHypSize, data.begin() + this->latHypSize + this->latImgSize);
 
         // Set the model inputs
-        auto latHypTensor = make_tensor_ptr(this->latHypShape, latHypVector, ScalarType::Byte);
+        auto latHypTensor = make_tensor_ptr(this->latHypShape, latHypVector.data(), ScalarType::Char);
         this->videoDecoder.set_input("forward", latHypTensor, 0);
 
-        auto latImgTensor = make_tensor_ptr(this->latImgShape, latImgVector, ScalarType::Byte);
+        auto latImgTensor = make_tensor_ptr(this->latImgShape, latImgVector.data(), ScalarType::Char);
         this->videoDecoder.set_input("forward", latImgTensor, 1);
 
         // Set the model output
@@ -128,6 +128,6 @@ ControlRunner::ControlRunner(ControlRunner&&) noexcept = default;
 ControlRunner& ControlRunner::operator=(ControlRunner&&) noexcept = default;
 
 // Decompress latent data using the video model
-std::vector<uint8_t> ControlRunner::decodeImage(const std::vector<uint8_t>& data) {
+std::vector<uint8_t> ControlRunner::decodeImage(const std::vector<int8_t>& data) {
     return this->controlRunnerImpl->decodeImageImpl(data);
 }
