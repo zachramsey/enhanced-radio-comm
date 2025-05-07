@@ -32,4 +32,3 @@
   - Select '\<Cancel>'
   - Select '\<No>'
   - Note: 'SSH Server' is set to Dropbear by default; it has a smaller footprint than OpenSSH & should work fine
-  - Note: I think that's all, but I fat-thumbed whatever the done button is
