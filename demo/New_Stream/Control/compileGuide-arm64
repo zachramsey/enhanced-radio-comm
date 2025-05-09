@@ -1,0 +1,163 @@
+# Install build tools and pybind11
+sudo apt update
+sudo apt install -y \
+    cmake \
+    g++ \
+    python3-dev \
+    python3-pip
+
+# If you're cross-compiling for Orange Pi (64-bit):
+sudo apt install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+
+# Enable Multi-Architecture Support (if not already enabled):
+# This allows your package manager to install packages for architectures other than your host's.
+# For 64-bit, you might not need to add an architecture, but it doesn't hurt to be explicit.
+sudo dpkg --add-architecture arm64 # Changed from armhf to arm64
+sudo apt update
+
+
+# Download the python development stuff for arm64
+# 1. Install the required packages:
+mkdir -p third_party/python3.11-dev-arm64 
+cd third_party
+git clone https://github.com/pybind/pybind11.git pybind11
+
+# The directory structure should look like this:
+# Decoder_CMake_Compiler/
+# ├── third_party/
+# │   └── pybind11/
+# │       ├── CMakeLists.txt
+# │       └── include/
+# │           └── pybind11/
+# │               └── ...
+
+# Download the full set of glibc headers
+mkdir -p libc6-dev-arm64
+cd libc6-dev-arm64
+apt download libc6-dev:arm64
+dpkg-deb -x libc6-dev_*.deb .
+
+# next we will download the libstdc++ headers
+cd..
+mkdir -p libstdc++-arm64
+cd libstdc++-arm64
+# Download-only, don’t install
+apt download libstdc++-12-dev:arm64
+# Extract into this folder
+dpkg-deb -x libstdc++-12-dev_*.deb .
+
+# !!! update the above to put everything in the python3.11-dev-arm64 directory
+# 2. Download the .deb Package (Don’t Install) 
+# Download the ARM64 package. (from the third_party directory)
+cd ..
+cd python3.11-dev-arm64 
+apt download python3.11-dev:arm64 
+dpkg-deb -x python3.11-dev_*.deb . 
+
+# Download (but do NOT install) the ARM64 UAPI headers
+apt download linux-libc-dev:arm64
+dpkg-deb -x linux-libc-dev_*.deb .
+
+# now install these packages
+apt download libpython3.11-dev:arm64 
+dpkg-deb -x libpython3.11-dev_*.deb . 
+
+# now, we will install the non dev version because we need the symbolic links
+apt download libpython3.11:arm64 
+dpkg-deb -x libpython3.11_*.deb .
+
+# final directory structure should be like:
+# Decoder_CMake_Compiler
+# ├── build
+# ├── decoder
+# ├── include
+# ├── static
+# ├── templates
+# ├── third_party
+# │   └── pybind11
+# │   └── python3.11-dev-arm64/usr
+# │       ├── bin
+# │       ├── include
+# │       ├── lib
+# │       ├── share
+# │       └── src
+# ├── libpython3.11_3.11.2-6+deb12u5_arm64.deb # Changed from armhf
+# ├── libpython3.11-dev_3.11.2-6+deb12u5_arm64.deb # Changed from armhf
+# ├── python3.11-dev_3.11.2-6+deb12u5_arm64.deb # Changed from armhf
+# ├── CMakeLists.txt
+# ├── compile_Executable_Instructions.txt
+# ├── readme.md
+# ├── remote_server.py
+# └── toolchain-arm64.cmake # Changed toolchain file name
+
+# 3. Set the system root using the filepath of your local system
+export SYSROOT=/path/to/your/project/root/third_party/python3.11-dev-arm64/usr
+# example:
+export SYSROOT=/home/richwawa/Desktop/test_code/Decoder_CMake_Compiler/third_party/python3.11-dev-arm64/usr
+# use 
+echo ${SYSROOT}
+# to verify its correct
+
+# 4. Now we can start building the project
+# ! be in the project root (ie one up from third_party)
+# we use this to cross compile everything
+#  - clean the build directory
+     rm -rf build/*
+#  - Configure with the Toolchain File: Run CMake, specifying the toolchain file
+     cmake -B build -DCMAKE_TOOLCHAIN_FILE=toolchain-arm64.cmake
+#  - Build the Project: Proceed to build your project:
+     cmake --build build
+
+# now you need to copy the libraries from the build environment cd to your project root
+mkdir -p build-lib
+cp /third_party/python3.11-dev-arm64/usr/lib/aarch64-linux-gnu/libpython3.11.so.1.0 /built-lib/
+cp /third_party/python3.11-dev-arm64/usr/lib/aarch64-linux-gnu/libstdc++.so.6 /built-lib/
+cp /third_party/python3.11-dev-arm64/usr/lib/aarch64-linux-gnu/libc.so.6 /built-lib/
+
+# if you are getting weird CMake errors in the CMakeLists.txt,
+# try re-configuring it through the cmake extension options
+
+# {}!!!!!!!!!!!!!!
+# If you're using the CMake Tools extension in VS Code, always hit “Configure” after:
+#
+#    Changing toolchains or CMake settings
+#
+#    Adding new dependencies
+#
+#    Cleaning the build folder
+#
+# {}Build the Module
+#
+# If you are getting this error:
+# [ 33%] Building CXX object CMakeFiles/mjpeg_decoder.dir/decoder/bindings.cpp.o
+# In file included from /home/richwawa/Desktop/test_code/Decoder_CMake_Compiler/third_party/python3.11-dev-arm64/usr/include/python3.11/Python.h:12,
+#                  from /home/richwawa/Desktop/test_code/Decoder_CMake_Compiler/third_party/pybind11/include/pybind11/conduit/wrap_include_python_h.h:44,
+#                  from /home/richwawa/Desktop/test_code/Decoder_CMake_Compiler/third_party/pybind11/include/pybind11/detail/common.h:12,
+#                  from /home/richwawa/Desktop/test_code/Decoder_CMake_Compiler/third_party/pybind11/include/pybind11/attr.h:13,
+#                  from /home/richwawa/Desktop/test_code/Decoder_CMake_Compiler/third_party/pybind11/include/pybind11/detail/class.h:12,
+#                  from /home/richwawa/Desktop/test_code/Decoder_CMake_Compiler/third_party/pybind11/include/pybind11/pybind11.h:12,
+#                  from /home/richwawa/Desktop/test_code/Decoder_CMake_Compiler/decoder/bindings.cpp:1:
+# /home/richwawa/Desktop/test_code/Decoder_CMake_Compiler/third_party/python3.11-dev-arm64/usr/include/python3.11/pyconfig.h:15:12: fatal error: aarch64-linux-gnu/python3.11/pyconfig.h: No such file or directory
+#    15 | #  include <aarch64-linux-gnu/python3.11/pyconfig.h>
+#      |            ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# compilation terminated.
+# gmake[2]: *** [CMakeFiles/mjpeg_decoder.dir/build.make:76: CMakeFiles/mjpeg_decoder.dir/decoder/bindings.cpp.o] Error 1
+# gmake[1]: *** [CMakeFiles/Makefile2:100: CMakeFiles/mjpeg_decoder.dir/all] Error 2
+# gmake: *** [Makefile:91: all] Error 2
+#
+# then do,
+# Step 1: Locate pyconfig.h
+#
+# set the system path? You should change this to match your machine
+# export SYSROOT=/home/richwawa/Desktop/test_code/Decoder_CMake_Compiler/third_party/python3.11-dev-arm64/usr #changed from armhf to arm64
+# use "echo ${SYSROOT}" to verify its correct
+#
+# this didnt work
+# It's likely somewhere like:
+#    third_party/python3.11-dev-arm64/usr/include/python3.11/pyconfig.h #changed from armhf to arm64
+# If it's there, create the missing folder and link it:
+#    mkdir -p third_party/python3.11-dev-arm64/usr/include/aarch64-linux-gnu/python3.11 #changed from armhf to aarch64
+#    ln -s ../../python3.11/pyconfig.h third_party/python3.11-dev-arm64/usr/include/aarch64-linux-gnu/python3.11/pyconfig.h #changed from armhf to aarch64
+#       - Weird quirk, the file was already in that location, and I had to remove it, then make the symlink
+#    Verify it works by doing
+#    cat third_party/python3.11-dev-arm64/usr/include/aarch64-linux-gnu/python3.11/pyconfig.h #changed from armhf to aarch64
