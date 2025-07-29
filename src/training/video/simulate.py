@@ -1,9 +1,13 @@
+import time
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
 from torch.utils.data import DataLoader
+from .model import VideoModel
+from .encoder import VideoEncoder
+from .decoder import VideoDecoder
 
-from .utils import tensor_to_image
+from .utils import tensor_to_image, print_inline_every
 
 # def simulate_errors(data: torch.Tensor, p=None, r=None, k=1, h=0) -> torch.Tensor:
 #     '''
@@ -226,7 +230,17 @@ def bit_errors(data: torch.Tensor, ber: float = 0.01) -> torch.Tensor:
 
 
 # @torch.compiler.disable
-def simulate_transmission(step: int, loader: DataLoader, model: str, encoder, decoder, exec_encoder, exec_decoder, plot_dir, device:str = 'cpu'):
+def simulate_transmission(
+        step: int, 
+        loader: DataLoader, 
+        model: VideoModel, 
+        encoder: VideoEncoder, 
+        decoder: VideoDecoder, 
+        exec_encoder, 
+        exec_decoder, 
+        plot_dir: str, 
+        device:str = 'cpu'
+    ):
     '''
     Simulate the transmission of data through a noisy channel and visualize the results.
 
@@ -243,6 +257,7 @@ def simulate_transmission(step: int, loader: DataLoader, model: str, encoder, de
     '''
 
     # Execute the methods
+    start = time.time()
     images = {}
     for i, (data, _) in enumerate(loader):
         data = data.to(device)
@@ -297,6 +312,8 @@ def simulate_transmission(step: int, loader: DataLoader, model: str, encoder, de
                 images['Executorch'] = np.concatenate((images['Executorch'], exec_sim), axis=0)
             # images['Mod Burst'] = np.concatenate((images['Mod Burst'], mod_burst), axis=0)
             # images['Dif Burst'] = np.concatenate((images['Dif Burst'], dif_burst), axis=0)
+
+        print_inline_every(i, 1, len(loader),  f"Simulating [{i+1:>7}/{len(loader):<7}] ({((time.time()-start) / (i+1)):.2f} s/it)")
 
     # Plot images
     col_headers = list(images.keys())

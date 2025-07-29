@@ -19,13 +19,10 @@ class VideoModel(nn.Module):
         self.image_analysis = nn.Sequential(
             nn.Conv2d(3, c_network, 5, stride=2, padding=2),
             GDN(c_network),
-            # nn.Dropout2d(0.2),
             nn.Conv2d(c_network, c_network, 5, stride=2, padding=2),
             GDN(c_network),
-            # nn.Dropout2d(0.2),
             nn.Conv2d(c_network, c_network, 5, stride=2, padding=2),
             GDN(c_network),
-            # nn.Dropout2d(0.2),
             nn.Conv2d(c_network, c_compress, 5, stride=2, padding=2),
         )
 
@@ -36,10 +33,8 @@ class VideoModel(nn.Module):
         self.hyper_analysis = nn.Sequential(
             nn.Conv2d(c_compress, c_network, 3, padding=1),
             nn.ReLU(inplace=True),
-            # nn.Dropout2d(0.2),
             nn.Conv2d(c_network, c_network, 5, stride=2, padding=2),
             nn.ReLU(inplace=True),
-            # nn.Dropout2d(0.2),
             nn.Conv2d(c_network, c_network, 5, stride=2, padding=2),
         )
 
@@ -53,26 +48,20 @@ class VideoModel(nn.Module):
         self.hyper_synthesis = nn.Sequential(
             nn.ConvTranspose2d(c_network, c_network, 5, stride=2, output_padding=(0, 1), padding=2),
             nn.ReLU(inplace=True),
-            # nn.Dropout2d(0.2),
             nn.ConvTranspose2d(c_network, c_network, 5, stride=2, output_padding=1, padding=2),
             nn.ReLU(inplace=True),
-            # nn.Dropout2d(0.2),
             nn.ConvTranspose2d(c_network, c_compress, 3, padding=1),
             nn.ReLU(inplace=True),
-            # nn.Dropout2d(0.2),
         )
 
         # Q, AE, AD
         self.image_bottleneck = GaussianConditional(scale_table=[0.11, 0.22, 0.44, 0.88, 1.76, 3.52, 7.04, 14.08])
         self.mean_params = nn.Sequential(
-            nn.Conv2d(c_compress, c_compress, 3, padding=1),
-            # nn.Dropout2d(0.2),
+            nn.Conv2d(c_compress, c_compress, 3, padding=1)
         )
         self.scale_params = nn.Sequential(
             nn.Conv2d(c_compress, c_compress, 3, padding=1),
-            nn.ReLU(inplace=True),
-            # nn.Softplus(),
-            # nn.Dropout2d(0.2),
+            nn.ReLU(inplace=True)
         )
 
         # g_s
@@ -83,13 +72,10 @@ class VideoModel(nn.Module):
         self.image_synthesis = nn.Sequential(
             nn.ConvTranspose2d(c_compress, c_network, 5, stride=2, output_padding=1, padding=2),
             GDN(c_network, inverse=True),
-            # nn.Dropout2d(0.2),
             nn.ConvTranspose2d(c_network, c_network, 5, stride=2, output_padding=1, padding=2),
             GDN(c_network, inverse=True),
-            # nn.Dropout2d(0.2),
             nn.ConvTranspose2d(c_network, c_network, 5, stride=2, output_padding=1, padding=2),
             GDN(c_network, inverse=True),
-            # nn.Dropout2d(0.2),
             nn.ConvTranspose2d(c_network, 3, 5, stride=2, output_padding=1, padding=2),
             nn.Sigmoid()
         )

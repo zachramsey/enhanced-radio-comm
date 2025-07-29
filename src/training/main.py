@@ -10,7 +10,7 @@ from video.trainer import VideoModelTrainer
 
 from video.encoder import VideoEncoder
 from video.decoder import VideoDecoder
-from video.compiler import XNNPackModel
+from video.compiler import ExecutorchModel
 
 if __name__ == "__main__":
     print()
@@ -30,15 +30,15 @@ if __name__ == "__main__":
 
         # Create subdirectories for current run
         dt = datetime.now().strftime("%y%m%d_%H%M%S")
-        PLOT_DIR = os.path.join(PLOT_DIR, dt)
-        MODEL_DIR = os.path.join(MODEL_DIR, dt)
-        EXPORT_DIR = os.path.join(EXPORT_DIR, dt)
-        os.makedirs(PLOT_DIR)
-        os.makedirs(MODEL_DIR)
-        os.makedirs(EXPORT_DIR)
+        plot_dir = os.path.join(PLOT_DIR, dt)
+        model_dir = os.path.join(MODEL_DIR, dt)
+        export_dir = os.path.join(EXPORT_DIR, dt)
+        os.makedirs(plot_dir)
+        os.makedirs(model_dir)
+        os.makedirs(export_dir)
 
         # Load the dataset
-        data_loader = ImageDataLoader(
+        data_loader = ImageDataLoader( 
             DATASET_DIR,
             DATASET,
             BATCH_SIZE,
@@ -50,7 +50,12 @@ if __name__ == "__main__":
         )
 
         # Train the model
-        trainer = VideoModelTrainer(data_loader)
+        trainer = VideoModelTrainer(
+            data_loader,
+            plot_dir,
+            model_dir,
+            export_dir
+        )
         trainer.train()
 
     # Load an existing model and create the XNNPack executables
@@ -92,7 +97,7 @@ if __name__ == "__main__":
 
         # Create the XNNPack model
         print("Creating XNNPackModel")
-        xnnpack_model = XNNPackModel(
+        xnnpack_model = ExecutorchModel(
             encoder=encoder,
             decoder=decoder,
             c_network=c_network,

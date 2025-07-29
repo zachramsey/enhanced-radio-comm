@@ -1,52 +1,4 @@
-
-# 
-
----
-
-## File Tree
-```
-src
-├── CMakeLists.txt
-├── ControlRunner
-│   ├── cmake
-│   │   └── ControlRunnerConfig.cmake.in
-│   ├── CMakeLists.txt
-│   ├── include
-│   │   └── control_runner.h
-│   └── src
-│       └── control_runner.cpp
-├── README.md
-├── RemoteRunner
-│   ├── cmake
-│   │   └── RemoteRunnerConfig.cmake.in
-│   ├── CMakeLists.txt
-│   ├── include
-│   │   └── remote_runner.h
-│   └── src
-│       └── remote_runner.cpp
-├── setup.md
-└── training
-    ├── __init__.py
-    ├── main.py
-    └── video
-        ├── bottlenecks.py
-        ├── compiler.py
-        ├── config.py
-        ├── decoder copy.py
-        ├── decoder.py
-        ├── encoder copy.py
-        ├── encoder.py
-        ├── __init__.py
-        ├── loader.py
-        ├── model.py
-        ├── simulate.py
-        ├── trainer.py
-        └── utils.py
-```
-
----
-
-## Setup
+# Setup
 
 ### Managing Python Environments *(pyenv + pyenv-virtualenv recommended)*
 
@@ -85,6 +37,7 @@ exec "$SHELL"
 ```
 
 ### Setting up C++ libraries
+
 **Prepare virtual environment:**
 ``` bash
 # Create a virtual environment for executorch dependencies
@@ -142,5 +95,3 @@ pip3 install scikit-image compressai executorch
 
 # Install PyTorch from https://pytorch.org/get-started/locally/
 ```
-
----

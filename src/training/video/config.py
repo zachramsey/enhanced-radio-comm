@@ -18,22 +18,23 @@ NUM_EXAMPLES = 5
 
 # Training parameters
 MAX_EPOCHS = 1000
-BATCH_SIZE = 6
-NETWORK_CHANNELS = 128
-COMPRESS_CHANNELS = 192
+BATCH_SIZE = 24
+NETWORK_CHANNELS = 32
+COMPRESS_CHANNELS = 64
 LEARNING_RATE = 1e-4
 DISTORTION_LAMBDA = 0.002
-EVAL_FREQ = 5
+EVAL_FREQ = 100
 
 # Model checkpoint settings
-load_model = True
-model_path = "250428_141734/VideoModel_1050.pth"
+load_model = False
+model_path = "picks/VideoModel-128_192-psnr_29_392147.pth"
 MODEL_DIR = "src/training/models"
 CHECKPOINT_PATH = os.path.join(MODEL_DIR, model_path) if load_model else None
 
 # Model export settings
 EXPORT_DIR = "src/exports"
-CONTROL_DIR = "src/control/src/pte"
-REMOTE_DIR = "src/remote/src/pte"
+CONTROL_DIR = "pte/control"
+REMOTE_DIR = "pte/remote"
 BACKEND = "xnnpack"
-EXPORT_FREQ = 10
+QUANTIZE = False
+EXPORT_FREQ = 500

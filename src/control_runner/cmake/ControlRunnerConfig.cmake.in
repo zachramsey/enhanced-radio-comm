@@ -1,0 +1,32 @@
+
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+# Find Executorch dependency.
+find_dependency(executorch REQUIRED)
+
+# Define the ControlRunner::control_runner imported target if not already defined
+if(NOT TARGET ControlRunner::control_runner)
+    add_library(ControlRunner::control_runner SHARED IMPORTED)
+
+    set(_lib_name "libcontrol_runner${CMAKE_SHARED_LIBRARY_SUFFIX}")
+    set_target_properties(ControlRunner::control_runner PROPERTIES
+        IMPORTED_LOCATION "${PACKAGE_CMAKE_INSTALL_LIBDIR}/${_lib_name}"
+    )
+
+    # Set the include directories.
+    set_target_properties(ControlRunner::control_runner PROPERTIES
+        INTERFACE_INCLUDE_DIRECTORIES "${PACKAGE_CMAKE_INSTALL_INCLUDEDIR}"
+    )
+
+    # Set interface link libraries
+    set_property(TARGET ControlRunner::control_runner APPEND PROPERTY INTERFACE_LINK_LIBRARIES
+        executorch
+        extension_module_static
+        extension_tensor
+        optimized_native_cpu_ops_lib
+        quantized_ops_lib
+        xnnpack_backend
+    )
+endif()

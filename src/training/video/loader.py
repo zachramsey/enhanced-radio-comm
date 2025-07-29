@@ -54,7 +54,9 @@ class ImageDataLoader:
         print(">>> Loading Places365 dataset")
         train_data = datasets.Places365(root=self.dataset_dir, split='train-standard', download=True, transform=self.common_transform)
         # val_test_dataset = datasets.Places365(root=self.dataset_dir, split='val', download=True, transform=self.common_transform)
-        self._filter_size(train_data, "places365", train_data.imgs, train_data.targets, min_size=(640, 480))
+        new_image_files, new_labels = self._filter_size(train_data, "places365", train_data.imgs, train_data.targets, min_size=(640, 480))
+        train_data.imgs = new_image_files
+        train_data.targets = new_labels
 
         print(">>> Splitting dataset")
         self._split_data(train_data)
@@ -62,7 +64,9 @@ class ImageDataLoader:
     def _get_sun397(self):
         print(">>> Loading SUN397 dataset")
         dataset = datasets.SUN397(root=self.dataset_dir, download=True, transform=self.common_transform)
-        self._filter_size(dataset, "sun397", dataset._image_files, dataset._labels, min_size=(640, 480))
+        new_image_files, new_labels = self._filter_size(dataset, "sun397", dataset._image_files, dataset._labels, min_size=(640, 480))
+        dataset._image_files = new_image_files
+        dataset._labels = new_labels
 
         print(">>> Splitting dataset")
         self._split_data(dataset)
@@ -94,8 +98,7 @@ class ImageDataLoader:
             with open(f"{self.dataset_dir}/{name}_labels.pkl", "wb") as f:
                 pickle.dump(new_labels, f)
 
-        image_files = new_image_files
-        labels = new_labels
+        return new_image_files, new_labels
 
     def _split_data(self, dataset: Dataset):
         n_rem = len(dataset)
@@ -103,7 +106,7 @@ class ImageDataLoader:
             n_train = int(n_rem * self.train_pct)
             n_rem -= n_train
             train_data, dataset = random_split(dataset, [n_train, n_rem])
-            self.train_data = DataLoader(train_data, batch_size=self.batch_size, shuffle=True, num_workers=4, pin_memory=True, pin_memory_device=self.device)
+            self.train_data = DataLoader(train_data, batch_size=self.batch_size, shuffle=True, num_workers=0, pin_memory=True)
 
         if self.num_examples > 0:
             n_rem -= self.num_examples
@@ -111,14 +114,14 @@ class ImageDataLoader:
             self.example_data = DataLoader(example_data, batch_size=1, shuffle=False, num_workers=0)
 
         if self.val_pct == 0:
-            self.test_data = DataLoader(dataset, batch_size=self.batch_size, shuffle=False, num_workers=4, pin_memory=True, pin_memory_device=self.device)
+            self.test_data = DataLoader(dataset, batch_size=self.batch_size, shuffle=False, num_workers=0, pin_memory=True)
         elif self.test_pct == 0:
-            self.val_data = DataLoader(dataset, batch_size=self.batch_size, shuffle=False, num_workers=4, pin_memory=True, pin_memory_device=self.device)
+            self.val_data = DataLoader(dataset, batch_size=self.batch_size, shuffle=False, num_workers=0, pin_memory=True)
         else:
             n_test = int(n_rem * self.test_pct / (self.val_pct + self.test_pct)) - self.num_examples
             val_data, test_data = random_split(dataset, [n_rem - n_test, n_test])
-            self.val_data = DataLoader(val_data, batch_size=self.batch_size, shuffle=False, num_workers=4, pin_memory=True, pin_memory_device=self.device)
-            self.test_data = DataLoader(test_data, batch_size=self.batch_size, shuffle=False, num_workers=4, pin_memory=True, pin_memory_device=self.device)
+            self.val_data = DataLoader(val_data, batch_size=self.batch_size, shuffle=False, num_workers=0, pin_memory=True)
+            self.test_data = DataLoader(test_data, batch_size=self.batch_size, shuffle=False, num_workers=0, pin_memory=True)
 
     @property
     def train_dl(self):
